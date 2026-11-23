@@ -103,7 +103,7 @@ def dashboard():
     if incoming_code:
         ok, _ = _exchange_fyers_auth_code(incoming_code)
         if ok:
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("dashboard", auth_ok=1))
     return render_template("dashboard.html")
 
 

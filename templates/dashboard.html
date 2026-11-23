@@ -53,8 +53,9 @@
     </div>
     <div class="d-flex align-items-center gap-2 flex-wrap">
       <span id="lastUpdated" class="muted mono">Syncing...</span>
+      <span id="fyersFeedBadge" class="badge-status bg-secondary text-light">Checking Feed...</span>
       <button id="refreshBtn" class="btn btn-sm btn-outline-info">Refresh</button>
-      <a href="/auth" class="btn btn-sm btn-outline-secondary">FYERS Login</a>
+      <a id="reconnectBtn" href="/auth" class="btn btn-sm btn-outline-warning">Connect / Reconnect</a>
       <button id="themeToggle" class="btn btn-sm btn-outline-light">Light Mode</button>
     </div>
   </div>
@@ -69,7 +70,25 @@
           <span class="muted">ENGINE STATUS</span>
           <span id="statusBadge" class="badge-status st-WAIT">LOADING</span>
         </div>
-        <div id="statusMessage" class="fw-semibold mt-1">?</div>
+        <div id="statusMessage" class="fw-semibold mt-1">Waiting for live snapshot...</div>
+      <div id="toastBanner" class="alert alert-success py-2 px-3 mt-2 mb-0 d-none" role="alert"></div>
+      <div class="mt-2">
+        <div class="d-flex justify-content-between small mb-1">
+          <span>Daily Trade Cap</span>
+          <span id="dailyCapLabel">0 / 2 trades</span>
+        </div>
+        <div class="progress" style="height: 8px;">
+          <div id="dailyCapBar" class="progress-bar bg-info" style="width: 0%;"></div>
+        </div>
+      </div>
+      <div id="liveDataDetails" class="small text-secondary mt-2 pt-2 border-top d-flex flex-wrap gap-3">
+        <span>Symbol: <strong id="ldSymbol">NIFTY 50 (15m)</strong></span>
+        <span>Close: <strong id="ldClose">--</strong></span>
+        <span>Candle: <strong id="ldTime">--</strong></span>
+        <span>SMA 2 / 10: <strong id="ldSma">-- / --</strong></span>
+        <span>Bars: <strong id="ldBars">--</strong></span>
+        <span>Last Sync: <strong id="ldSync">--</strong></span>
+      </div>
         <div id="sessionMeta" class="muted mono mt-2">Session: ?</div>
       </div>
     </div>
@@ -489,6 +508,99 @@
   document.getElementById("refreshBtn").addEventListener("click", refreshAll);
   refreshAll();
   setInterval(refreshAll, 15000);
+</script>
+<script>
+(function () {
+  function showToast(msg, variant) {
+    const el = document.getElementById("toastBanner");
+    if (!el || !msg) return;
+    el.className = `alert alert-${variant || "info"} py-2 px-3 mt-2 mb-0`;
+    el.textContent = msg;
+    el.classList.remove("d-none");
+    setTimeout(() => { el.classList.add("d-none"); }, 6000);
+  }
+
+  function pushBrowserNotice(title, body) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      try { new Notification(title, { body }); } catch (_) {}
+    } else if (Notification.permission === "default") {
+      Notification.requestPermission().then(perm => {
+        if (perm === "granted") {
+          try { new Notification(title, { body }); } catch (_) {}
+        }
+      }).catch(() => {});
+    }
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("auth_ok") === "1") {
+    showToast("Fyers Authentication successful", "success");
+    pushBrowserNotice("FIFNIT", "Fyers Authentication successful");
+    params.delete("auth_ok");
+    const cleanUrl = window.location.pathname + (params.toString() ? "?" + params.toString() : "");
+    window.history.replaceState({}, "", cleanUrl);
+  }
+
+  async function refreshFeedAndLiveDetails() {
+    const badge = document.getElementById("fyersFeedBadge");
+    try {
+      const [cfgRes, stRes, monRes] = await Promise.all([
+        fetch("/api/fyers/config").then(r => r.json()).catch(() => ({})),
+        fetch("/api/strategy/status").then(r => r.json()).catch(() => ({})),
+        fetch("/api/monitor/status").then(r => r.json()).catch(() => ({}))
+      ]);
+
+      const feedOk = Boolean(cfgRes && cfgRes.has_token && stRes && stRes.ok);
+      if (badge) {
+        if (feedOk) {
+          badge.textContent = "Fyers Feed Connected";
+          badge.className = "badge-status bg-success text-light";
+        } else {
+          badge.textContent = "Fyers Feed Disconnected";
+          badge.className = "badge-status bg-danger text-light";
+        }
+      }
+
+      const snap = (stRes && stRes.ok) ? stRes : (monRes && monRes.ok ? monRes : null);
+      if (snap) {
+        const latest = snap.latest_candle || snap.candle || {};
+        const closeVal = latest.close ?? snap.last_close ?? snap.close ?? "--";
+        const timeVal = latest.time ?? latest.timestamp ?? snap.candle_time ?? snap.last_updated ?? "--";
+        const sma2 = snap.sma_2 ?? snap.sma2 ?? latest.sma_2 ?? "--";
+        const sma10 = snap.sma_10 ?? snap.sma10 ?? latest.sma_10 ?? "--";
+        const barsCount = snap.candles_count ?? snap.bars_count ?? (Array.isArray(snap.candles) ? snap.candles.length : "--");
+
+        const setTxt = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = String(v); };
+        setTxt("ldClose", closeVal);
+        setTxt("ldTime", timeVal);
+        setTxt("ldSma", `${sma2} / ${sma10}`);
+        setTxt("ldBars", barsCount);
+        setTxt("ldSync", new Date().toLocaleTimeString());
+      }
+
+      if (monRes && monRes.ok) {
+        const count = Number(monRes.trades_today ?? monRes.today_trades ?? (Array.isArray(monRes.actual_trades) ? monRes.actual_trades.length : 0)) || 0;
+        const cap = Number(monRes.max_trades_per_day ?? monRes.daily_trade_cap ?? 2) || 2;
+        const pct = Math.max(0, Math.min(100, Math.round((count / cap) * 100)));
+        const capBar = document.getElementById("dailyCapBar");
+        const capLbl = document.getElementById("dailyCapLabel");
+        if (capBar) capBar.style.width = `${pct}%`;
+        if (capLbl) capLbl.textContent = `${count} / ${cap} trades (${pct}%)`;
+      }
+    } catch (_) {
+      if (badge) {
+        badge.textContent = "Fyers Feed Disconnected";
+        badge.className = "badge-status bg-danger text-light";
+      }
+    }
+  }
+
+  refreshFeedAndLiveDetails();
+  const refreshBtn = document.getElementById("refreshBtn");
+  if (refreshBtn) refreshBtn.addEventListener("click", refreshFeedAndLiveDetails);
+  setInterval(refreshFeedAndLiveDetails, 30000);
+})();
 </script>
 </body>
 </html>
