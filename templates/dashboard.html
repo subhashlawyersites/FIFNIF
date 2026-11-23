@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NIFTY 15m Trade Intelligence</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root[data-theme="dark"] {
+      --bg: #0b1120;
+      --card: #111827;
+      --border: #1f2937;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #38bdf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+    }
+    :root[data-theme="light"] {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #0284c7;
+      --green: #16a34a;
+      --red: #dc2626;
+      --amber: #d97706;
+    }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .badge-status { font-size: 0.8rem; padding: 0.35rem 0.65rem; border-radius: 999px; font-weight: 600; }
+    .st-ACTIVE { background: rgba(34,197,94,0.18); color: var(--green); border: 1px solid var(--green); }
+    .st-ARMED { background: rgba(245,158,11,0.18); color: var(--amber); border: 1px solid var(--amber); }
+    .st-WAIT { background: rgba(56,189,248,0.15); color: var(--accent); border: 1px solid var(--accent); }
+    .st-SKIP { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid var(--red); }
+    .table { color: var(--text); border-color: var(--border); }
+    .table thead th { color: var(--muted); font-weight: 600; border-bottom-color: var(--border); }
+    .form-control, .form-select { background: var(--bg); color: var(--text); border-color: var(--border); }
+    .form-control:focus, .form-select:focus { background: var(--bg); color: var(--text); border-color: var(--accent); box-shadow: none; }
+  </style>
+</head>
+<body>
+<div class="container-fluid py-3 px-3 px-md-4" style="max-width: 1440px;">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h4 class="mb-0 fw-bold">NIFTY 50 ? 15m SMA 2/10 Decision Engine</h4>
+      <div class="muted">Closed-bar verified signals ? Mon?Thu ? Max 2 trades/day ? 0.60R target ? Monitored, Paper & Real Analytics</div>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span id="lastUpdated" class="muted mono">Syncing...</span>
+      <button id="refreshBtn" class="btn btn-sm btn-outline-info">Refresh</button>
+      <a href="/auth" class="btn btn-sm btn-outline-secondary">FYERS Login</a>
+      <button id="themeToggle" class="btn btn-sm btn-outline-light">Light Mode</button>
+    </div>
+  </div>
+
+  <div id="errorBanner" class="alert alert-danger d-none py-2"></div>
+
+  <!-- Top KPI Strip -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <div class="panel h-100">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="muted">ENGINE STATUS</span>
+          <span id="statusBadge" class="badge-status st-WAIT">LOADING</span>
+        </div>
+        <div id="statusMessage" class="fw-semibold mt-1">?</div>
+        <div id="sessionMeta" class="muted mono mt-2">Session: ?</div>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="panel h-100">
+        <div class="muted mb-1">LATEST CLOSED 15M CANDLE</div>
+        <div class="d-flex justify-content-between align-items-baseline">
+          <span id="spotClose" class="fs-4 fw-bold mono">?</span>
+          <span id="candleTime" class="muted mono">?</span>
+        </div>
+        <div class="d-flex gap-3 mt-2 mono small">
+          <span>SMA 2: <strong id="sma2Val">?</strong></span>
+          <span>SMA 10: <strong id="sma10Val">?</strong></span>
+          <span>Ref SL: <strong id="refSlVal">?</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="panel h-100">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="muted">MONITORED + PAPER / REAL SUMMARY</span>
+          <select id="modeFilter" class="form-select form-select-sm" style="width:auto;padding:2px 8px;font-size:0.78rem;">
+            <option value="ALL">All Modes</option>
+            <option value="PAPER">PAPER Only</option>
+            <option value="REAL">REAL Only</option>
+          </select>
+        </div>
+        <div class="d-flex justify-content-between align-items-baseline">
+          <span id="netPts" class="fs-4 fw-bold mono">?</span>
+          <span id="netR" class="fw-semibold mono">?</span>
+        </div>
+        <div class="d-flex gap-3 mt-2 mono small flex-wrap">
+          <span>Signals: <strong id="totalTrades">0</strong></span>
+          <span>Win: <strong id="winRate">0%</strong></span>
+          <span>Net INR: <strong id="actualInr">?0</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Signal / Trade Monitor -->
+  <div class="panel mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0 fw-bold">Active 15m Signal & Risk Levels</h6>
+      <span id="previewNote" class="muted mono">Closed-bar mode active</span>
+    </div>
+    <div id="activeTradeBox" class="muted">No open 15m signal right now. Signals confirm strictly on 15m candle close.</div>
+  </div>
+
+  <!-- Statistical Breakdown: Daily / Weekly / Monthly / Yearly + Charts -->
+  <div class="panel mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <div>
+        <h6 class="mb-0 fw-bold">Statistical Performance Breakdown (15m Monitored + Logged Option Trades)</h6>
+        <div id="statHighlights" class="muted mono mt-1">Max DD: ? ? Best Day: ? ? Worst Day: ?</div>
+      </div>
+      <div class="btn-group btn-group-sm" role="group" id="grainTabs">
+        <button type="button" class="btn btn-info active" data-grain="daily">Daily</button>
+        <button type="button" class="btn btn-outline-info" data-grain="weekly">Weekly</button>
+        <button type="button" class="btn btn-outline-info" data-grain="monthly">Monthly</button>
+        <button type="button" class="btn btn-outline-info" data-grain="yearly">Yearly</button>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-lg-6">
+        <div style="height:240px;"><canvas id="ptsChart"></canvas></div>
+      </div>
+      <div class="col-lg-6">
+        <div style="height:240px;"><canvas id="inrChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="table-responsive" style="max-height:260px;">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>15m Trades</th>
+            <th>W / L</th>
+            <th>Win %</th>
+            <th>CALL / PUT</th>
+            <th>15m Pts</th>
+            <th>Cum Pts</th>
+            <th>Net R</th>
+            <th>Gross ?</th>
+            <th>Charges ?</th>
+            <th>Net ?</th>
+          </tr>
+        </thead>
+        <tbody id="periodStatsBody">
+          <tr><td colspan="11" class="muted">Loading statistics...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Today's Session Events & Manual Trade Logger -->
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <div class="panel h-100">
+        <h6 class="fw-bold mb-2">Today's 15m Session Events & Exits</h6>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Event</th>
+                <th>Dir</th>
+                <th>Entry</th>
+                <th>SL</th>
+                <th>0.6R Target</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody id="eventsBody">
+              <tr><td colspan="7" class="muted">Loading session events...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="panel h-100">
+        <h6 class="fw-bold mb-2">Log Paper / Real Option Trade</h6>
+        <form id="tradeForm" class="row g-2">
+          <div class="col-4">
+            <select id="tMode" class="form-select form-select-sm">
+              <option value="PAPER">PAPER</option>
+              <option value="REAL">REAL</option>
+            </select>
+          </div>
+          <div class="col-4">
+            <select id="tDir" class="form-select form-select-sm">
+              <option value="PUT">PUT</option>
+              <option value="CALL">CALL</option>
+            </select>
+          </div>
+          <div class="col-4">
+            <input id="tQty" type="number" class="form-control form-control-sm" value="75" placeholder="Qty" required />
+          </div>
+          <div class="col-12">
+            <input id="tSymbol" type="text" class="form-control form-control-sm" placeholder="Option Symbol (e.g. NSE:NIFTY26NOV25500PE)" required />
+          </div>
+          <div class="col-4">
+            <input id="tEntry" type="number" step="0.05" class="form-control form-control-sm" placeholder="Entry Prem" required />
+          </div>
+          <div class="col-4">
+            <input id="tExit" type="number" step="0.05" class="form-control form-control-sm" placeholder="Exit Prem (opt)" />
+          </div>
+          <div class="col-4">
+            <input id="tCharges" type="number" step="0.05" class="form-control form-control-sm" value="60" placeholder="Charges ?" />
+          </div>
+          <div class="col-12 d-grid">
+            <button type="submit" class="btn btn-sm btn-info fw-semibold">Save Trade Entry</button>
+          </div>
+        </form>
+
+        <hr class="my-3" style="border-color: var(--border);" />
+        <div class="table-responsive" style="max-height: 200px;">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr><th>Date</th><th>Mode</th><th>Option</th><th>Qty</th><th>Net ?</th></tr>
+            </thead>
+            <tbody id="manualBody">
+              <tr><td colspan="5" class="muted">No logged option trades yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const root = document.documentElement;
+  const themeBtn = document.getElementById("themeToggle");
+  const savedTheme = localStorage.getItem("nifty15m_theme") || "dark";
+  root.setAttribute("data-theme", savedTheme);
+  themeBtn.textContent = savedTheme === "dark" ? "Light Mode" : "Dark Mode";
+
+  let currentGrain = "daily";
+  let latestAnalytics = null;
+  let ptsChart = null;
+  let inrChart = null;
+
+  themeBtn.addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    localStorage.setItem("nifty15m_theme", next);
+    themeBtn.textContent = next === "dark" ? "Light Mode" : "Dark Mode";
+    renderPeriodView();
+  });
+
+  document.querySelectorAll("#grainTabs button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      currentGrain = btn.dataset.grain;
+      document.querySelectorAll("#grainTabs button").forEach(b => {
+        b.className = b === btn ? "btn btn-info active" : "btn btn-outline-info";
+      });
+      renderPeriodView();
+    });
+  });
+
+  document.getElementById("modeFilter").addEventListener("change", refreshAll);
+
+  function badgeClass(st) {
+    if (st === "SIGNAL_ACTIVE") return "badge-status st-ACTIVE";
+    if (st === "SETUP_ARMED") return "badge-status st-ARMED";
+    if (st === "SESSION_SKIPPED") return "badge-status st-SKIP";
+    return "badge-status st-WAIT";
+  }
+
+  function renderPeriodView() {
+    if (!latestAnalytics) return;
+    const rows = (latestAnalytics.series && latestAnalytics.series[currentGrain]) || [];
+    const ps = latestAnalytics.paper_summary || {};
+    const bestStr = ps.best_day ? `${ps.best_day.label} (${ps.best_day.paper_points > 0 ? "+" : ""}${ps.best_day.paper_points} pts)` : "?";
+    const worstStr = ps.worst_day ? `${ps.worst_day.label} (${ps.worst_day.paper_points} pts)` : "?";
+    document.getElementById("statHighlights").textContent =
+      `Max DD: ${ps.max_dd_points ?? 0} pts ? Best Day: ${bestStr} ? Worst Day: ${worstStr}`;
+
+    const tbody = document.getElementById("periodStatsBody");
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="11" class="muted">No closed trades for ${currentGrain} view yet.</td></tr>`;
+    } else {
+      tbody.innerHTML = rows.slice().reverse().map(r => `<tr class="mono">
+        <td><strong>${r.label}</strong></td>
+        <td>${r.trades}</td>
+        <td>${r.wins}W / ${r.losses}L</td>
+        <td>${r.win_rate}%</td>
+        <td>${r.calls}C / ${r.puts}P</td>
+        <td class="${r.paper_points >= 0 ? "text-success" : "text-danger"}">${r.paper_points > 0 ? "+" : ""}${r.paper_points}</td>
+        <td>${r.cum_paper_points > 0 ? "+" : ""}${r.cum_paper_points}</td>
+        <td>${r.paper_r > 0 ? "+" : ""}${r.paper_r}R</td>
+        <td>?${r.actual_gross}</td>
+        <td>?${r.actual_charges}</td>
+        <td class="${r.actual_net >= 0 ? "text-success" : "text-danger"}">?${r.actual_net}</td>
+      </tr>`).join("");
+    }
+
+    const labels = rows.map(r => r.label);
+    const ptsData = rows.map(r => r.paper_points);
+    const cumPtsData = rows.map(r => r.cum_paper_points);
+    const netInrData = rows.map(r => r.actual_net);
+    const cumInrData = rows.map(r => r.cum_actual_net);
+
+    if (ptsChart) ptsChart.destroy();
+    ptsChart = new Chart(document.getElementById("ptsChart"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: `${currentGrain.toUpperCase()} 15m Pts`, data: ptsData, backgroundColor: "rgba(56,189,248,0.65)" },
+          { label: "Cumulative Pts", data: cumPtsData, type: "line", borderColor: "#22c55e", tension: 0.25, fill: false }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: getComputedStyle(root).getPropertyValue("--text").trim() } } } }
+    });
+
+    if (inrChart) inrChart.destroy();
+    inrChart = new Chart(document.getElementById("inrChart"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: `${currentGrain.toUpperCase()} Net ?`, data: netInrData, backgroundColor: "rgba(245,158,11,0.65)" },
+          { label: "Cumulative Net ?", data: cumInrData, type: "line", borderColor: "#a855f7", tension: 0.25, fill: false }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: getComputedStyle(root).getPropertyValue("--text").trim() } } } }
+    });
+  }
+
+  async function refreshAll() {
+    const errEl = document.getElementById("errorBanner");
+    const mode = document.getElementById("modeFilter").value;
+    try {
+      const [stRes, monRes, anaRes] = await Promise.all([
+        fetch("/api/strategy/status").then(r => r.json()),
+        fetch("/api/monitor/status").then(r => r.json()),
+        fetch(`/api/journal/analytics?days=365&mode=${encodeURIComponent(mode)}`).then(r => r.json())
+      ]);
+
+      if (!stRes.ok) throw new Error(stRes.error || "Failed to fetch strategy status");
+      errEl.classList.add("d-none");
+
+      const sb = document.getElementById("statusBadge");
+      sb.textContent = stRes.status;
+      sb.className = badgeClass(stRes.status);
+      document.getElementById("statusMessage").textContent = stRes.message;
+      document.getElementById("sessionMeta").textContent =
+        `Session: ${stRes.session_date || "?"} ? Trades: ${stRes.state?.trades_today ?? 0}/2 ? Bars: ${stRes.completed_candles}`;
+
+      const lc = stRes.latest_candle || {};
+      document.getElementById("spotClose").textContent = lc.close ?? "?";
+      document.getElementById("candleTime").textContent = lc.end_time ? `Closed ${lc.end_time} IST` : "?";
+      document.getElementById("sma2Val").textContent = lc.sma2 ?? "?";
+      document.getElementById("sma10Val").textContent = lc.sma10 ?? "?";
+      document.getElementById("refSlVal").textContent = stRes.state?.ref_sl ?? "?";
+
+      if (stRes.preview_bar) {
+        document.getElementById("previewNote").textContent =
+          `Preview (unclosed): ${stRes.preview_bar.close} ? Waiting for bar close`;
+      } else {
+        document.getElementById("previewNote").textContent = "All visible 15m bars closed";
+      }
+
+      const activeBox = document.getElementById("activeTradeBox");
+      if (stRes.active_trade) {
+        const t = stRes.active_trade;
+        const pos = (monRes.strategy_positions || [])[0];
+        const tgtPct = pos?.progress?.target_progress_pct ?? 0;
+        const slPct = pos?.progress?.loss_progress_pct ?? 0;
+        activeBox.innerHTML = `
+          <div class="row g-3 align-items-center mono">
+            <div class="col-md-6">
+              <span class="badge bg-success me-2">${t.direction} #${t.trade_no}</span>
+              Entry: <strong>${t.entry}</strong> ? SL: <strong class="text-danger">${t.sl}</strong> ? 0.6R Target: <strong class="text-info">${t.target}</strong>
+              <div class="muted mt-1">Risk: ${t.risk} pts (${t.risk_pct}%) ? Spot Now: ${monRes.current_nifty ?? "?"}</div>
+            </div>
+            <div class="col-md-6">
+              <div class="d-flex justify-content-between small mb-1">
+                <span>Target Progress: ${tgtPct}%</span>
+                <span>SL Pressure: ${slPct}%</span>
+              </div>
+              <div class="progress" style="height: 10px;">
+                <div class="progress-bar bg-success" style="width: ${tgtPct}%"></div>
+                <div class="progress-bar bg-danger" style="width: ${slPct}%"></div>
+              </div>
+            </div>
+          </div>`;
+      } else {
+        activeBox.textContent = "No open 15m signal right now. Signals confirm strictly on 15m candle close.";
+      }
+
+      const evBody = document.getElementById("eventsBody");
+      const evs = stRes.recent_events || [];
+      if (!evs.length) {
+        evBody.innerHTML = `<tr><td colspan="7" class="muted">No 15m events recorded for ${stRes.session_date || "today"} yet.</td></tr>`;
+      } else {
+        evBody.innerHTML = evs.map(e => {
+          const tr = e.trade || {};
+          const timeStr = (e.timestamp || "").slice(11, 16);
+          const pnl = tr.pnl_pts != null ? `${tr.pnl_pts > 0 ? "+" : ""}${tr.pnl_pts} (${tr.r_val}R)` : "?";
+          return `<tr class="mono">
+            <td>${timeStr}</td>
+            <td>${e.event}</td>
+            <td>${tr.direction || (e.event.includes("PUT") ? "PUT" : e.event.includes("CALL") ? "CALL" : "?")}</td>
+            <td>${tr.entry ?? "?"}</td>
+            <td>${tr.sl ?? e.ref_sl ?? "?"}</td>
+            <td>${tr.target ?? "?"}</td>
+            <td>${pnl}</td>
+          </tr>`;
+        }).join("");
+      }
+
+      if (anaRes.ok) {
+        latestAnalytics = anaRes;
+        const ps = anaRes.paper_summary || {};
+        document.getElementById("netPts").textContent = `${ps.net_points > 0 ? "+" : ""}${ps.net_points} pts`;
+        document.getElementById("netR").textContent = `${ps.net_r > 0 ? "+" : ""}${ps.net_r} R`;
+        document.getElementById("totalTrades").textContent = anaRes.total_signals ?? 0;
+        document.getElementById("winRate").textContent = `${ps.win_rate ?? 0}%`;
+        document.getElementById("actualInr").textContent = `?${anaRes.actual_summary?.net_pnl ?? 0}`;
+
+        renderPeriodView();
+
+        const mBody = document.getElementById("manualBody");
+        const mTrades = anaRes.manual_trades || [];
+        if (!mTrades.length) {
+          mBody.innerHTML = `<tr><td colspan="5" class="muted">No logged option trades yet.</td></tr>`;
+        } else {
+          mBody.innerHTML = mTrades.map(m => `<tr class="mono">
+            <td>${m.date}</td>
+            <td>${m.mode}</td>
+            <td>${m.symbol}</td>
+            <td>${m.qty}</td>
+            <td>?${m.net_pnl}</td>
+          </tr>`).join("");
+        }
+      }
+
+      document.getElementById("lastUpdated").textContent = "Updated " + new Date().toLocaleTimeString();
+    } catch (err) {
+      errEl.textContent = "Error: " + err.message;
+      errEl.classList.remove("d-none");
+    }
+  }
+
+  document.getElementById("tradeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      mode: document.getElementById("tMode").value,
+      direction: document.getElementById("tDir").value,
+      qty: document.getElementById("tQty").value,
+      symbol: document.getElementById("tSymbol").value,
+      entry_price: document.getElementById("tEntry").value,
+      exit_price: document.getElementById("tExit").value,
+      charges: document.getElementById("tCharges").value
+    };
+    const res = await fetch("/api/trades", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+    if (res.ok) {
+      document.getElementById("tEntry").value = "";
+      document.getElementById("tExit").value = "";
+      refreshAll();
+    }
+  });
+
+  document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+  refreshAll();
+  setInterval(refreshAll, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick Fyers Login</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --error: #ef4444;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    }
+    h1 { margin: 0 0 6px; font-size: 1.3rem; }
+    p.sub { margin: 0 0 16px; color: var(--muted); font-size: 0.88rem; }
+    .saved-pill {
+      display: inline-block;
+      font-size: 0.78rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.14);
+      color: #7dd3fc;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      margin-bottom: 14px;
+    }
+    label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 5px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: var(--text);
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+    }
+    .creds-box {
+      display: none;
+      padding: 12px;
+      border-radius: 8px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+    .creds-box.open { display: block; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button, a.btn {
+      padding: 10px 15px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-primary { background: var(--accent); color: #0f172a; }
+    .btn-secondary { background: #334155; color: var(--text); }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .status {
+      margin-top: 14px;
+      padding: 11px 12px;
+      border-radius: 8px;
+      font-size: 0.84rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      display: none;
+      background: #0f172a;
+      border: 1px solid var(--border);
+    }
+    .status.ok { display: block; border-color: var(--success); color: #bbf7d0; }
+    .status.err { display: block; border-color: var(--error); color: #fecaca; }
+    .token-box {
+      margin-top: 10px;
+      padding: 9px;
+      border-radius: 8px;
+      background: #0b1220;
+      border: 1px dashed var(--border);
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: #7dd3fc;
+      word-break: break-all;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="d-flex" style="display:flex;justify-content:space-between;align-items:center;">
+      <h1>Fyers Quick Login</h1>
+      <a href="/" class="btn btn-ghost" style="padding:6px 10px;font-size:0.8rem;">Dashboard</a>
+    </div>
+    <p class="sub">Saved credentials load automatically from <code>.env</code>. Only login, paste redirect URL/code, and save.</p>
+    <div id="savedSummary" class="saved-pill">Loading saved .env credentials...</div>
+
+    <div class="row" style="margin-bottom:14px;">
+      <button class="btn-secondary" type="button" onclick="openFyersLogin()">1. Open Fyers Login</button>
+      <button class="btn-ghost" type="button" onclick="toggleCreds()">Edit Saved App Keys</button>
+    </div>
+
+    <div id="credsBox" class="creds-box">
+      <label for="clientId">Fyers Client ID</label>
+      <input id="clientId" type="text" placeholder="ABCDE12345-100" />
+
+      <label for="secretKey">Fyers Secret ID</label>
+      <input id="secretKey" type="password" placeholder="Saved in .env after first save" />
+
+      <label for="redirectUri">Redirect URI</label>
+      <input id="redirectUri" type="text" value="https://trade.fyers.in/api-login/redirect-uri/index.html" />
+    </div>
+
+    <label for="authInput">2. Paste Redirect URL or Auth Code</label>
+    <input id="authInput" type="text" placeholder="Paste redirected URL or auth_code" />
+
+    <div class="row">
+      <button class="btn-primary" type="button" onclick="exchangeToken()">Save Daily Token</button>
+    </div>
+
+    <div id="statusBox" class="status"></div>
+    <div id="tokenBox" class="token-box"></div>
+  </div>
+
+  <script>
+    function toggleCreds() {
+      document.getElementById("credsBox").classList.toggle("open");
+    }
+
+    function showStatus(msg, isError = false) {
+      const box = document.getElementById("statusBox");
+      box.textContent = msg;
+      box.className = "status " + (isError ? "err" : "ok");
+    }
+
+    function extractAuthCode(raw) {
+      const trimmed = raw.trim();
+      if (!trimmed) return "";
+      try {
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+          const url = new URL(trimmed);
+          if (url.searchParams.get("auth_code")) return url.searchParams.get("auth_code");
+        }
+      } catch (_) {}
+      const match = trimmed.match(/[?&]auth_code=([^&]+)/);
+      return match ? decodeURIComponent(match[1]) : trimmed;
+    }
+
+    async function loadSavedConfig() {
+      try {
+        const res = await fetch("/api/fyers/config");
+        const cfg = await res.json();
+        if (!cfg.ok) return;
+        if (cfg.client_id) document.getElementById("clientId").value = cfg.client_id;
+        if (cfg.secret_key) document.getElementById("secretKey").value = cfg.secret_key;
+        if (cfg.redirect_uri) document.getElementById("redirectUri").value = cfg.redirect_uri;
+
+        const pill = document.getElementById("savedSummary");
+        if (cfg.client_id && cfg.secret_key) {
+          pill.textContent = `App ID loaded (${cfg.client_id}) ? Token ${cfg.has_token ? "present" : "missing"}`;
+        } else {
+          pill.textContent = "Enter Client ID & Secret once to save in .env";
+          document.getElementById("credsBox").classList.add("open");
+        }
+      } catch (_) {}
+    }
+
+    function openFyersLogin() {
+      const clientId = document.getElementById("clientId").value.trim();
+      const redirectUri = encodeURIComponent(document.getElementById("redirectUri").value.trim());
+      if (!clientId) {
+        document.getElementById("credsBox").classList.add("open");
+        showStatus("Client ID not found yet. Enter it once under 'Edit Saved App Keys'.", true);
+        return;
+      }
+      const loginUrl =
+        `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${encodeURIComponent(clientId)}&redirect_uri=${redirectUri}&response_type=code&state=nifty_backtest`;
+      window.open(loginUrl, "_blank", "noopener,noreferrer");
+      showStatus("Opened Fyers login. Paste the redirected URL or auth_code below and click 'Save Daily Token'.");
+    }
+
+    async function exchangeToken() {
+      const clientId = document.getElementById("clientId").value.trim();
+      const secretKey = document.getElementById("secretKey").value.trim();
+      const redirectUri = document.getElementById("redirectUri").value.trim();
+      const authCode = extractAuthCode(document.getElementById("authInput").value);
+
+      if (!authCode) {
+        showStatus("Paste the redirected URL or auth_code first.", true);
+        return;
+      }
+
+      showStatus("Generating daily access_token...");
+      try {
+        const res = await fetch("/api/fyers/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_id: clientId,
+            secret_key: secretKey,
+            redirect_uri: redirectUri,
+            auth_code: authCode
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          showStatus("Login failed: " + (data.error || JSON.stringify(data)), true);
+          return;
+        }
+        showStatus("Saved daily access_token to .env! You can return to Dashboard.");
+        const tBox = document.getElementById("tokenBox");
+        tBox.style.display = "block";
+        tBox.textContent = "FYERS_ACCESS_TOKEN=" + data.access_token;
+        loadSavedConfig();
+      } catch (err) {
+        showStatus("Request error: " + err.message, true);
+      }
+    }
+
+    loadSavedConfig();
+  </script>
+</body>
+</html>

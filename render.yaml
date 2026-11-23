@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: FIFNIT
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: FYERS_CLIENT_ID
+        sync: false
+      - key: FYERS_SECRET_KEY
+        sync: false
+      - key: FYERS_ACCESS_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: FYERS_REDIRECT_URI
+        value: https://trade.fyers.in/api-login/redirect-uri/index.html
