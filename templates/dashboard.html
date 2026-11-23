@@ -53,9 +53,10 @@
     </div>
     <div class="d-flex align-items-center gap-2 flex-wrap">
       <span id="lastUpdated" class="muted mono">Syncing...</span>
-      <span id="fyersFeedBadge" class="badge-status bg-secondary text-light">Checking Feed...</span>
+      <span id="liveFeedStatusBadge" class="badge-status bg-danger text-light">Disconnected from Live Feed</span>
       <button id="refreshBtn" class="btn btn-sm btn-outline-info">Refresh</button>
-      <a id="reconnectBtn" href="/auth" class="btn btn-sm btn-outline-warning">Connect / Reconnect</a>
+      <a id="reconnectLiveFeedBtn" href="/auth" class="btn btn-sm btn-outline-success">Re-Connect with Live Feed</a>
+      <button id="disconnectLiveFeedBtn" type="button" class="btn btn-sm btn-outline-danger">Disconnect with Live Feed</button>
       <button id="themeToggle" class="btn btn-sm btn-outline-light">Light Mode</button>
     </div>
   </div>
@@ -511,95 +512,35 @@
 </script>
 <script>
 (function () {
-  function showToast(msg, variant) {
-    const el = document.getElementById("toastBanner");
-    if (!el || !msg) return;
-    el.className = `alert alert-${variant || "info"} py-2 px-3 mt-2 mb-0`;
-    el.textContent = msg;
-    el.classList.remove("d-none");
-    setTimeout(() => { el.classList.add("d-none"); }, 6000);
-  }
-
-  function pushBrowserNotice(title, body) {
-    if (!("Notification" in window)) return;
-    if (Notification.permission === "granted") {
-      try { new Notification(title, { body }); } catch (_) {}
-    } else if (Notification.permission === "default") {
-      Notification.requestPermission().then(perm => {
-        if (perm === "granted") {
-          try { new Notification(title, { body }); } catch (_) {}
-        }
-      }).catch(() => {});
+  const badge = document.getElementById("liveFeedStatusBadge");
+  const disconnectBtn = document.getElementById("disconnectLiveFeedBtn");
+  function renderFeedState(connected) {
+    if (!badge) return;
+    if (connected) {
+      badge.textContent = "Connected Live with Fyers";
+      badge.className = "badge-status bg-success text-light";
+    } else {
+      badge.textContent = "Disconnected from Live Feed";
+      badge.className = "badge-status bg-danger text-light";
     }
   }
-
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("auth_ok") === "1") {
-    showToast("Fyers Authentication successful", "success");
-    pushBrowserNotice("FIFNIT", "Fyers Authentication successful");
-    params.delete("auth_ok");
-    const cleanUrl = window.location.pathname + (params.toString() ? "?" + params.toString() : "");
-    window.history.replaceState({}, "", cleanUrl);
-  }
-
-  async function refreshFeedAndLiveDetails() {
-    const badge = document.getElementById("fyersFeedBadge");
+  async function syncFeedState() {
     try {
-      const [cfgRes, stRes, monRes] = await Promise.all([
+      const [cfgRes, stRes] = await Promise.all([
         fetch("/api/fyers/config").then(r => r.json()).catch(() => ({})),
-        fetch("/api/strategy/status").then(r => r.json()).catch(() => ({})),
-        fetch("/api/monitor/status").then(r => r.json()).catch(() => ({}))
+        fetch("/api/strategy/status").then(r => r.json()).catch(() => ({}))
       ]);
-
-      const feedOk = Boolean(cfgRes && cfgRes.has_token && stRes && stRes.ok);
-      if (badge) {
-        if (feedOk) {
-          badge.textContent = "Fyers Feed Connected";
-          badge.className = "badge-status bg-success text-light";
-        } else {
-          badge.textContent = "Fyers Feed Disconnected";
-          badge.className = "badge-status bg-danger text-light";
-        }
-      }
-
-      const snap = (stRes && stRes.ok) ? stRes : (monRes && monRes.ok ? monRes : null);
-      if (snap) {
-        const latest = snap.latest_candle || snap.candle || {};
-        const closeVal = latest.close ?? snap.last_close ?? snap.close ?? "--";
-        const timeVal = latest.time ?? latest.timestamp ?? snap.candle_time ?? snap.last_updated ?? "--";
-        const sma2 = snap.sma_2 ?? snap.sma2 ?? latest.sma_2 ?? "--";
-        const sma10 = snap.sma_10 ?? snap.sma10 ?? latest.sma_10 ?? "--";
-        const barsCount = snap.candles_count ?? snap.bars_count ?? (Array.isArray(snap.candles) ? snap.candles.length : "--");
-
-        const setTxt = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = String(v); };
-        setTxt("ldClose", closeVal);
-        setTxt("ldTime", timeVal);
-        setTxt("ldSma", `${sma2} / ${sma10}`);
-        setTxt("ldBars", barsCount);
-        setTxt("ldSync", new Date().toLocaleTimeString());
-      }
-
-      if (monRes && monRes.ok) {
-        const count = Number(monRes.trades_today ?? monRes.today_trades ?? (Array.isArray(monRes.actual_trades) ? monRes.actual_trades.length : 0)) || 0;
-        const cap = Number(monRes.max_trades_per_day ?? monRes.daily_trade_cap ?? 2) || 2;
-        const pct = Math.max(0, Math.min(100, Math.round((count / cap) * 100)));
-        const capBar = document.getElementById("dailyCapBar");
-        const capLbl = document.getElementById("dailyCapLabel");
-        if (capBar) capBar.style.width = `${pct}%`;
-        if (capLbl) capLbl.textContent = `${count} / ${cap} trades (${pct}%)`;
-      }
-    } catch (_) {
-      if (badge) {
-        badge.textContent = "Fyers Feed Disconnected";
-        badge.className = "badge-status bg-danger text-light";
-      }
-    }
+      renderFeedState(Boolean(cfgRes && cfgRes.has_token && stRes && stRes.ok));
+    } catch (_) { renderFeedState(false); }
   }
-
-  refreshFeedAndLiveDetails();
-  const refreshBtn = document.getElementById("refreshBtn");
-  if (refreshBtn) refreshBtn.addEventListener("click", refreshFeedAndLiveDetails);
-  setInterval(refreshFeedAndLiveDetails, 30000);
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener("click", async () => {
+      try { await fetch("/api/fyers/disconnect", { method: "POST" }); } catch (_) {}
+      renderFeedState(false);
+    });
+  }
+  syncFeedState();
+  setInterval(syncFeedState, 30000);
 })();
 </script>
 </body>

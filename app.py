@@ -112,6 +112,39 @@ def auth_page():
     return send_from_directory(BASE_DIR, "fyers_auth.html")
 
 
+def _extract_auth_code(raw_val: str) -> str:
+    val = (raw_val or "").strip()
+    if not val:
+        return ""
+    if "auth_code=" in val:
+        parsed = urlparse(val if "://" in val else ("https://example.com/?" + val.lstrip("?")))
+        codes = parse_qs(parsed.query).get("auth_code") or []
+        if codes:
+            return codes[0].strip()
+    return val
+
+
+@app.post("/api/fyers/exchange")
+def api_fyers_exchange():
+    data = request.get_json(silent=True) or {}
+    code = _extract_auth_code(data.get("auth_code") or data.get("redirect_url") or "")
+    ok, result = _exchange_fyers_auth_code(
+        code,
+        client_id=(data.get("client_id") or "").strip(),
+        secret_key=(data.get("secret_key") or "").strip(),
+        redirect_uri=(data.get("redirect_uri") or "").strip(),
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": result}), 400
+    return jsonify({"ok": True, "message": "Fyers Authentication successful"})
+
+
+@app.post("/api/fyers/disconnect")
+def api_fyers_disconnect():
+    os.environ["FYERS_ACCESS_TOKEN"] = ""
+    return jsonify({"ok": True, "connected": False, "message": "Disconnected from Live Feed"})
+
+
 @app.get("/api/fyers/config")
 def api_fyers_config():
     load_dotenv(ENV_PATH, override=True)
