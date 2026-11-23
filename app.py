@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory, redirect, url_for
 from fyers_apiv3 import fyersModel
 
 from live_engine_15m import IST, build_fyers_client, fetch_recent_15m_candles
@@ -57,8 +57,53 @@ def _update_env_keys(updates: dict[str, str]) -> None:
     ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
+def _exchange_fyers_auth_code(
+    auth_code: str,
+    client_id: str = "",
+    secret_key: str = "",
+    redirect_uri: str = "",
+) -> tuple[bool, str]:
+    load_dotenv(ENV_PATH, override=True)
+    default_redirect = "https://trade.fyers.in/api-login/redirect-uri/index.html"
+    cid = (client_id or os.getenv("FYERS_CLIENT_ID") or "").strip()
+    sec = (secret_key or os.getenv("FYERS_SECRET_KEY") or os.getenv("FYERS_APP_SECRET") or "").strip()
+    redir = (redirect_uri or os.getenv("FYERS_REDIRECT_URI") or default_redirect).strip()
+    code = (auth_code or "").strip()
+
+    if not cid or not sec or not code:
+        return False, "Missing client_id, secret_key, or auth_code"
+
+    session = fyersModel.SessionModel(
+        client_id=cid,
+        secret_key=sec,
+        redirect_uri=redir,
+        response_type="code",
+        grant_type="authorization_code",
+    )
+    session.set_token(code)
+    resp = session.generate_token()
+    access_token = (resp or {}).get("access_token")
+    if not access_token:
+        return False, (resp or {}).get("message") or str(resp)
+
+    updates = {
+        "FYERS_CLIENT_ID": cid,
+        "FYERS_SECRET_KEY": sec,
+        "FYERS_REDIRECT_URI": redir,
+        "FYERS_ACCESS_TOKEN": access_token,
+    }
+    _update_env_keys(updates)
+    os.environ.update(updates)
+    return True, access_token
+
+
 @app.get("/")
 def dashboard():
+    incoming_code = (request.args.get("auth_code") or "").strip()
+    if incoming_code:
+        ok, _ = _exchange_fyers_auth_code(incoming_code)
+        if ok:
+            return redirect(url_for("dashboard"))
     return render_template("dashboard.html")
 
 
@@ -69,7 +114,7 @@ def auth_page():
 
 @app.get("/api/fyers/config")
 def api_fyers_config():
-    load_dotenv(ENV_PATH, override=False)
+    load_dotenv(ENV_PATH, override=True)
     default_redirect = "https://trade.fyers.in/api-login/redirect-uri/index.html"
     client_id = (os.getenv("FYERS_CLIENT_ID") or "").strip()
     secret_key = (os.getenv("FYERS_SECRET_KEY") or os.getenv("FYERS_APP_SECRET") or "").strip()
@@ -172,45 +217,16 @@ def api_add_trade():
 
 @app.post("/api/fyers/token")
 def api_fyers_token():
-    load_dotenv(ENV_PATH, override=False)
     payload = request.get_json(silent=True) or {}
-    client_id = (payload.get("client_id") or os.getenv("FYERS_CLIENT_ID") or "").strip()
-    secret_key = (
-        payload.get("secret_key")
-        or os.getenv("FYERS_SECRET_KEY")
-        or os.getenv("FYERS_APP_SECRET")
-        or ""
-    ).strip()
-    redirect_uri = (
-        payload.get("redirect_uri")
-        or os.getenv("FYERS_REDIRECT_URI")
-        or "https://trade.fyers.in/api-login/redirect-uri/index.html"
-    ).strip()
-    auth_code = (payload.get("auth_code") or "").strip()
-
-    if not client_id or not secret_key or not auth_code:
-        return jsonify({"ok": False, "error": "Missing client_id, secret_key, or auth_code"}), 400
-
-    session = fyersModel.SessionModel(
-        client_id=client_id,
-        secret_key=secret_key,
-        redirect_uri=redirect_uri,
-        response_type="code",
-        grant_type="authorization_code",
+    ok, result = _exchange_fyers_auth_code(
+        auth_code=str(payload.get("auth_code") or ""),
+        client_id=str(payload.get("client_id") or ""),
+        secret_key=str(payload.get("secret_key") or payload.get("secret") or ""),
+        redirect_uri=str(payload.get("redirect_uri") or ""),
     )
-    session.set_token(auth_code)
-    resp = session.generate_token()
-    access_token = resp.get("access_token")
-    if not access_token:
-        return jsonify({"ok": False, "error": resp.get("message") or str(resp)}), 400
-
-    _update_env_keys({
-        "FYERS_CLIENT_ID": client_id,
-        "FYERS_SECRET_KEY": secret_key,
-        "FYERS_REDIRECT_URI": redirect_uri,
-        "FYERS_ACCESS_TOKEN": access_token,
-    })
-    return jsonify({"ok": True, "access_token": access_token})
+    if not ok:
+        return jsonify({"ok": False, "error": result}), 400
+    return jsonify({"ok": True, "access_token": result})
 
 
 if __name__ == "__main__":
