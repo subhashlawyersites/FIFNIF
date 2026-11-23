@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b111e" />
+  <title>15m Signal &amp; Edge Analytics (0.70R) | NIFTY Trade Intelligence</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root[data-theme="dark"] {
+      --bg-page: #0b111e;
+      --bg-card: #111a2e;
+      --bg-sub: #0d1526;
+      --border-subtle: rgba(148, 163, 184, 0.18);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+    }
+    :root[data-theme="light"] {
+      --bg-page: #f1f5f9;
+      --bg-card: #ffffff;
+      --bg-sub: #f8fafc;
+      --border-subtle: rgba(15, 23, 42, 0.14);
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --accent: #0284c7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-main);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: rgba(56, 189, 248, 0.22);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Mobile-friendly touch ergonomics */
+    button,
+    a.btn,
+    select,
+    input[type="number"],
+    input[type="time"],
+    .form-check-input {
+      touch-action: manipulation;
+    }
+
+    .tap-btn {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .panel-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 14px;
+      height: 100%;
+    }
+
+    .kpi-box {
+      background: var(--bg-sub);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 12px;
+      height: 100%;
+    }
+
+    .kpi-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .kpi-val {
+      font-size: 1.18rem;
+      font-weight: 700;
+      line-height: 1.25;
+      margin-top: 2px;
+    }
+
+    .kpi-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .chart-box {
+      position: relative;
+      height: 240px;
+      width: 100%;
+    }
+
+    .modal-chart-box {
+      position: relative;
+      height: 68vh;
+      width: 100%;
+    }
+
+    .text-muted-custom {
+      color: var(--text-muted) !important;
+    }
+
+    .chart-summary-box {
+      background: var(--bg-sub);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      margin-top: 8px;
+    }
+
+    @media (max-width: 576px) {
+      .panel-card { padding: 12px; border-radius: 12px; }
+      .chart-box { height: 215px; }
+      .kpi-val { font-size: 1.06rem; }
+      .btn-group-mobile-wrap { flex-wrap: wrap; width: 100%; }
+      .btn-group-mobile-wrap > .btn { flex: 1 1 auto; min-height: 38px; }
+    }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff !important; color: #000 !important; }
+      .panel-card { border: 1px solid #ccc !important; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar border-bottom px-3 py-2 sticky-top no-print" style="background: var(--bg-card); border-color: var(--border-subtle) !important; z-index: 1020;">
+    <div class="container-fluid d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <strong class="fs-6">15m Signal &amp; Edge Lab</strong>
+        <span class="badge bg-success text-dark">Target: 0.70R</span>
+        <span class="badge bg-info text-dark">Active: Mon, Wed, Thu</span>
+      </div>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <a href="/" class="btn btn-sm btn-outline-info tap-btn">Dashboard</a>
+        <a href="/trade-analytics" class="btn btn-sm btn-outline-secondary tap-btn">A/B Analytics</a>
+        <a href="/journal" class="btn btn-sm btn-outline-secondary tap-btn">Journal</a>
+        <button type="button" class="btn btn-sm btn-outline-info tap-btn position-relative" data-bs-toggle="offcanvas" data-bs-target="#notifDrawer">
+          Alerts <span class="badge bg-danger ms-1" id="notifUnreadBadge" style="display:none;">0</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-warning tap-btn" id="themeToggleBtn">Theme</button>
+        <button type="button" class="btn btn-sm btn-info text-dark fw-semibold tap-btn" id="reloadEdgeBtn">Reload</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container-fluid py-3">
+    <!-- Filter & Day Regime Bar -->
+    <div class="panel-card mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2 no-print">
+      <div class="d-flex flex-wrap align-items-center gap-2 w-100 w-lg-auto">
+        <span class="small text-muted-custom fw-semibold">Day Regime:</span>
+        <div class="btn-group btn-group-sm btn-group-mobile-wrap" id="dayRegimeGroup">
+          <button type="button" class="btn btn-success text-dark fw-semibold active" data-regime="ACTIVE_ONLY">Mon / Wed / Thu (Active)</button>
+          <button type="button" class="btn btn-outline-secondary" data-regime="ALL_LOGGED">All Logged (Incl. Tue/Fri Shadow)</button>
+        </div>
+
+        <span class="small text-muted-custom fw-semibold ms-lg-2">Slice:</span>
+        <div class="btn-group btn-group-sm btn-group-mobile-wrap" id="sliceFilterGroup">
+          <button type="button" class="btn btn-info text-dark active" data-slice="ALL">All</button>
+          <button type="button" class="btn btn-outline-info" data-slice="CALL">CALL</button>
+          <button type="button" class="btn btn-outline-info" data-slice="PUT">PUT</button>
+          <button type="button" class="btn btn-outline-info" data-slice="WINS">Wins</button>
+          <button type="button" class="btn btn-outline-info" data-slice="LOSSES">Losses</button>
+        </div>
+      </div>
+      <div class="small text-muted-custom" id="edgeMetaSummary">Loading 15m telemetry...</div>
+    </div>
+
+    <!-- 0.70R Safe-Exit Position Sizer -->
+    <div class="panel-card mb-3 no-print" id="signalSizerCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <strong class="small text-uppercase">0.70R Safe-Exit &amp; Position Sizer</strong>
+          <span class="badge bg-info text-dark">09:45+ Window | Max 2/Day</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-success fw-semibold tap-btn" id="copyOrderPlanBtn">Copy Order Plan</button>
+      </div>
+
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-2">
+          <label for="szCapital" class="form-label small text-muted-custom mb-1">Capital (₹)</label>
+          <input type="number" id="szCapital" class="form-control form-control-sm" value="200000" min="1000" step="5000" />
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="szRiskPct" class="form-label small text-muted-custom mb-1">Risk / Trade (%)</label>
+          <input type="number" id="szRiskPct" class="form-control form-control-sm" value="1.0" min="0.1" max="10" step="0.1" />
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="szLotSize" class="form-label small text-muted-custom mb-1">Units / Lot</label>
+          <input type="number" id="szLotSize" class="form-control form-control-sm" value="75" min="1" step="1" />
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="szEntry" class="form-label small text-muted-custom mb-1">Entry Price</label>
+          <input type="number" id="szEntry" class="form-control form-control-sm" placeholder="e.g. 24500" step="0.05" />
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="szSlPts" class="form-label small text-muted-custom mb-1">Stop-Loss (pts)</label>
+          <input type="number" id="szSlPts" class="form-control form-control-sm" value="25" min="1" step="0.5" />
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="szDir" class="form-label small text-muted-custom mb-1">Direction</label>
+          <select id="szDir" class="form-select form-select-sm">
+            <option value="CALL">CALL (Long)</option>
+            <option value="PUT">PUT (Short)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row g-2 mt-2">
+        <div class="col-6 col-md-3">
+          <div class="kpi-box">
+            <div class="kpi-label">Suggested Lots / Qty</div>
+            <div class="kpi-val text-info" id="szLotsOut">1 Lot (75 qty)</div>
+            <div class="kpi-sub" id="szBudgetOut">Risk Budget: ₹2,000</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="kpi-box">
+            <div class="kpi-label">Est. 1R Stop Loss</div>
+            <div class="kpi-val text-danger" id="szLossOut">-₹1,875</div>
+            <div class="kpi-sub" id="szSlLevelOut">SL Distance: 25.0 pts</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="kpi-box">
+            <div class="kpi-label">Safe Target (0.70R)</div>
+            <div class="kpi-val text-success" id="szTgt70Out">+17.5 pts</div>
+            <div class="kpi-sub" id="szTgt70PriceOut">Enter entry for exact level</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="kpi-box">
+            <div class="kpi-label">Plan Status</div>
+            <div class="kpi-val text-warning" id="szPlanBadge">0.70R Locked</div>
+            <div class="kpi-sub" id="szCopyStatus">Ready to copy plan</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top KPI Strip -->
+    <div class="row g-2 mb-3">
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-box">
+          <div class="kpi-label">Net Points &amp; Win Rate</div>
+          <div class="kpi-val text-info" id="sumNetPts">-</div>
+          <div class="kpi-sub" id="sumWinRate">-</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-box">
+          <div class="kpi-label">CALL vs PUT Edge</div>
+          <div class="kpi-val" id="sumCallPut">-</div>
+          <div class="kpi-sub" id="sumCallPutSub">-</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-box">
+          <div class="kpi-label">Best / Worst Day</div>
+          <div class="kpi-val text-success" id="hlBestDay">-</div>
+          <div class="kpi-sub" id="hlWorstDaySub">-</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-box">
+          <div class="kpi-label">Best Candle / Cross</div>
+          <div class="kpi-val text-warning" id="sumBestCandle">-</div>
+          <div class="kpi-sub" id="sumBestCandleSub">-</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-box">
+          <div class="kpi-label">Avg MFE vs MAE</div>
+          <div class="kpi-val" id="sumMfeMae">-</div>
+          <div class="kpi-sub" id="sumSpeedSub">-</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-box">
+          <div class="kpi-label">Best / Worst Exit</div>
+          <div class="kpi-val text-success" id="hlBestExit">-</div>
+          <div class="kpi-sub" id="hlWorstExitSub">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="row g-3" id="chartsGrid"></div>
+
+    <!-- Breakdown Table -->
+    <div class="panel-card mt-3" id="breakdownTableCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 no-print">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <strong class="small text-uppercase">15m Trade &amp; Shadow Log</strong>
+          <span class="badge bg-secondary" id="edgeRowsCount">0 trades</span>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-1">
+          <button type="button" class="btn btn-sm btn-outline-success tap-btn" onclick="exportCSV()">CSV</button>
+          <button type="button" class="btn btn-sm btn-outline-warning tap-btn" onclick="exportPDF()">Print / PDF</button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-2" id="breakdownTable" style="color: var(--text-main);">
+          <thead>
+            <tr>
+              <th>Date / Day</th>
+              <th>Regime</th>
+              <th>Dir</th>
+              <th>Cross → Entry → Exit</th>
+              <th>Exit Reason</th>
+              <th>MFE / MAE</th>
+              <th class="text-end">Points</th>
+            </tr>
+          </thead>
+          <tbody id="edgeTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-2 border-top border-secondary border-opacity-25 no-print">
+        <span class="small text-muted-custom" id="pageInfoText">Page 1 of 1</span>
+        <div class="btn-group btn-group-sm">
+          <button type="button" class="btn btn-outline-info tap-btn" id="prevPageBtn">Prev</button>
+          <button type="button" class="btn btn-outline-info tap-btn" id="nextPageBtn">Next</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating Alert Toast -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3 no-print" style="z-index: 1090;">
+    <div id="liveAlertToast" class="toast border border-info" role="alert" aria-live="assertive" aria-atomic="true" style="background: var(--bg-card); color: var(--text-main);">
+      <div class="toast-header border-secondary border-opacity-25" style="background: var(--bg-sub); color: var(--text-main);">
+        <strong class="me-auto small" id="toastAlertTitle">15m Trading Alert</strong>
+        <small class="text-muted-custom" id="toastAlertTime">Now</small>
+        <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body small">
+        <div id="toastAlertMsg" class="mb-2">Alert triggered.</div>
+        <a href="/" id="toastAlertLink" class="btn btn-sm btn-info text-dark py-1 px-2 fw-semibold">Open</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts Drawer -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="notifDrawer" style="background: var(--bg-card); color: var(--text-main);">
+    <div class="offcanvas-header border-bottom border-secondary border-opacity-25">
+      <h5 class="offcanvas-title fs-6">15m Alerts (Entry &amp; 0.70R Exit)</h5>
+      <div class="d-flex gap-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary tap-btn" id="markAllNotifReadBtn">Mark Read</button>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+      </div>
+    </div>
+    <div class="offcanvas-body" id="notifFeedList">
+      <div class="small text-muted-custom">No recent notifications.</div>
+    </div>
+  </div>
+
+  <!-- Fullscreen Chart Modal -->
+  <div class="modal fade" id="fullscreenChartModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen">
+      <div class="modal-content" style="background: var(--bg-card); color: var(--text-main);">
+        <div class="modal-header border-secondary border-opacity-25">
+          <h5 class="modal-title" id="fsChartTitle">Chart View</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body d-flex flex-column justify-content-center">
+          <div class="modal-chart-box">
+            <canvas id="fullscreenChartCanvas"></canvas>
+          </div>
+          <div class="chart-summary-box mt-3" id="fsChartSummary"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const ACTIVE_WEEKDAYS = new Set(["Monday", "Wednesday", "Thursday"]);
+    const TARGET_PCT = 0.70;
+    const seenAlertKeys = new Set();
+
+    let rawPayload = null;
+    let dayRegime = "ACTIVE_ONLY";
+    let activeSlice = "ALL";
+    let currentFilteredTrades = [];
+    let currentPage = 1;
+    const pageSize = 10;
+    let pollTimer = null;
+
+    const chartInstances = {};
+    const chartConfigs = {};
+    let fsChartInstance = null;
+    let fsModal = null;
+
+    const CHART_SPECS = [
+      { id: "cDayPts", title: "Session Date Net Points", kind: "bar", source: "by_day" },
+      { id: "cCumArea", title: "Cumulative Points Curve", kind: "area", source: "trades" },
+      { id: "cWeekday", title: "Weekday Performance (Mon–Fri)", kind: "bar", source: "by_weekday" },
+      { id: "cExitReason", title: "Exit Breakdown (0.70R / SL / EOD)", kind: "bar", source: "by_exit_reason" },
+      { id: "cOutcomePie", title: "Win / Loss Mix", kind: "doughnut", metric: "outcome" },
+      { id: "cDirPie", title: "CALL vs PUT Mix", kind: "pie", metric: "direction" }
+    ];
+
+    function isTradeActiveDay(t) {
+      if (typeof t.is_eligible_day === "boolean") return t.is_eligible_day;
+      return ACTIVE_WEEKDAYS.has(t.weekday);
+    }
+
+    function filterTrades(trades) {
+      let list = trades || [];
+      if (dayRegime === "ACTIVE_ONLY") {
+        list = list.filter(isTradeActiveDay);
+      }
+      if (activeSlice === "CALL") return list.filter(t => t.direction === "CALL");
+      if (activeSlice === "PUT") return list.filter(t => t.direction === "PUT");
+      if (activeSlice === "WINS") return list.filter(t => Number(t.points || 0) > 0);
+      if (activeSlice === "LOSSES") return list.filter(t => Number(t.points || 0) < 0);
+      return list;
+    }
+
+    function aggregateTrades(trades) {
+      const mDay = {}, mWk = {}, mExit = {};
+      const add = (map, key, t) => {
+        const k = key || "UNKNOWN";
+        const s = map[k] || { label: k, net_points: 0, trades: 0, wins: 0, losses: 0 };
+        s.trades += 1;
+        s.net_points = Number((s.net_points + Number(t.points || 0)).toFixed(2));
+        if (t.points > 0) s.wins += 1;
+        else if (t.points < 0) s.losses += 1;
+        map[k] = s;
+      };
+
+      let cum = 0;
+      const areaRows = [];
+      [...trades].reverse().forEach(t => {
+        cum = Number((cum + Number(t.points || 0)).toFixed(2));
+        areaRows.push({ label: `${t.session_date} ${t.entry_time || ""}`.trim(), cum_points: cum });
+        add(mDay, t.session_date, t);
+        add(mWk, t.weekday, t);
+        add(mExit, t.exit_reason, t);
+      });
+
+      const wkOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const orderedWk = Object.keys(mWk).sort((a, b) => {
+        const ia = wkOrder.indexOf(a), ib = wkOrder.indexOf(b);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      }).map(k => mWk[k]);
+
+      return {
+        by_day: Object.keys(mDay).sort().map(k => mDay[k]),
+        by_weekday: orderedWk,
+        by_exit_reason: Object.keys(mExit).map(k => mExit[k]),
+        area_rows: areaRows
+      };
+    }
+
+    function buildChartSummaryText(spec, trades, agg) {
+      if (!trades.length) return "No trades in selected view.";
+      if (spec.kind === "doughnut" || spec.kind === "pie") {
+        const counts = {};
+        trades.forEach(t => {
+          const k = t[spec.metric] || "UNKNOWN";
+          counts[k] = (counts[k] || 0) + 1;
+        });
+        return Object.entries(counts).map(([k, v]) => `<strong>${k}:</strong> ${v} (${((v / trades.length) * 100).toFixed(1)}%)`).join(" · ");
+      }
+      if (spec.kind === "area") {
+        const rows = agg.area_rows || [];
+        const latest = rows[rows.length - 1]?.cum_points ?? 0;
+        const peak = Math.max(...rows.map(r => r.cum_points));
+        return `<strong>Net:</strong> ${latest >= 0 ? "+" : ""}${latest} pts · <strong>Peak:</strong> +${peak} pts`;
+      }
+      const arr = agg[spec.source] || [];
+      if (!arr.length) return "No bucket rows available.";
+      const asc = [...arr].sort((a, b) => a.net_points - b.net_points);
+      const bot = asc[0];
+      const top = asc[asc.length - 1];
+      return `<strong>Best:</strong> ${top.label} (${top.net_points >= 0 ? "+" : ""}${top.net_points}) · <strong>Weakest:</strong> ${bot.label} (${bot.net_points >= 0 ? "+" : ""}${bot.net_points})`;
+    }
+
+    function createChartConfig(spec, trades, agg) {
+      const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+      const gridColor = isDark ? "rgba(148,163,184,0.14)" : "rgba(15,23,42,0.12)";
+      const tickColor = isDark ? "#94a3b8" : "#475569";
+
+      const baseOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: tickColor, boxWidth: 12 } } },
+        scales: {
+          x: { ticks: { color: tickColor, maxRotation: 35 }, grid: { color: gridColor } },
+          y: { ticks: { color: tickColor }, grid: { color: gridColor } }
+        }
+      };
+
+      if (spec.kind === "doughnut" || spec.kind === "pie") {
+        const counts = {};
+        trades.forEach(t => {
+          const k = t[spec.metric] || "UNKNOWN";
+          counts[k] = (counts[k] || 0) + 1;
+        });
+        return {
+          type: spec.kind,
+          data: {
+            labels: Object.keys(counts),
+            datasets: [{ data: Object.values(counts), backgroundColor: ["#22c55e", "#ef4444", "#38bdf8", "#f59e0b"] }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { color: tickColor } } } }
+        };
+      }
+
+      if (spec.kind === "area") {
+        const rows = agg.area_rows || [];
+        return {
+          type: "line",
+          data: {
+            labels: rows.map(r => r.label),
+            datasets: [{
+              label: "Cumulative Points",
+              data: rows.map(r => r.cum_points),
+              borderColor: "#38bdf8",
+              backgroundColor: "rgba(56, 189, 248, 0.22)",
+              fill: true,
+              tension: 0.25
+            }]
+          },
+          options: baseOpts
+        };
+      }
+
+      const arr = agg[spec.source] || [];
+      const vals = arr.map(x => Number(x.net_points || 0));
+      return {
+        type: "bar",
+        data: {
+          labels: arr.map(x => x.label),
+          datasets: [{
+            label: "Net Points",
+            data: vals,
+            backgroundColor: vals.map(v => v >= 0 ? "rgba(34, 197, 94, 0.78)" : "rgba(239, 68, 68, 0.78)"),
+            borderRadius: 4
+          }]
+        },
+        options: baseOpts
+      };
+    }
+
+    function renderSummaries(trades, agg) {
+      const totalPts = trades.reduce((a, b) => a + Number(b.points || 0), 0);
+      const wins = trades.filter(t => Number(t.points || 0) > 0).length;
+      const losses = trades.filter(t => Number(t.points || 0) < 0).length;
+      const wr = (wins + losses) ? ((wins / (wins + losses)) * 100).toFixed(1) : "0.0";
+      document.getElementById("sumNetPts").textContent = `${totalPts >= 0 ? "+" : ""}${totalPts.toFixed(1)} pts`;
+      document.getElementById("sumWinRate").textContent = `${wr}% WR (${wins}W / ${losses}L)`;
+
+      const callPts = trades.filter(t => t.direction === "CALL").reduce((a, b) => a + Number(b.points || 0), 0);
+      const putPts = trades.filter(t => t.direction === "PUT").reduce((a, b) => a + Number(b.points || 0), 0);
+      document.getElementById("sumCallPut").textContent = `CE ${callPts >= 0 ? "+" : ""}${callPts.toFixed(1)}`;
+      document.getElementById("sumCallPutSub").textContent = `PE ${putPts >= 0 ? "+" : ""}${putPts.toFixed(1)} pts`;
+
+      const sortedDays = [...agg.by_day].sort((a, b) => a.net_points - b.net_points);
+      const worstDay = sortedDays[0];
+      const bestDay = sortedDays[sortedDays.length - 1];
+      document.getElementById("hlBestDay").textContent = bestDay ? `${bestDay.label} (${bestDay.net_points >= 0 ? "+" : ""}${bestDay.net_points})` : "-";
+      document.getElementById("hlWorstDaySub").textContent = worstDay ? `Worst: ${worstDay.label} (${worstDay.net_points})` : "-";
+
+      const avgMfe = trades.length ? (trades.reduce((a, b) => a + Number(b.mfe || 0), 0) / trades.length).toFixed(1) : "0.0";
+      const avgMae = trades.length ? (trades.reduce((a, b) => a + Number(b.mae || 0), 0) / trades.length).toFixed(1) : "0.0";
+      document.getElementById("sumMfeMae").textContent = `+${avgMfe} / -${avgMae}`;
+      document.getElementById("sumSpeedSub").textContent = `${trades.length} signals`;
+
+      const sortedExits = [...agg.by_exit_reason].sort((a, b) => a.net_points - b.net_points);
+      const worstExit = sortedExits[0];
+      const bestExit = sortedExits[sortedExits.length - 1];
+      document.getElementById("hlBestExit").textContent = bestExit ? bestExit.label : "-";
+      document.getElementById("hlWorstExitSub").textContent = worstExit ? `Weakest: ${worstExit.label}` : "-";
+      document.getElementById("sumBestCandle").textContent = "0.70R Rule";
+      document.getElementById("sumBestCandleSub").textContent = dayRegime === "ACTIVE_ONLY" ? "Mon/Wed/Thu" : "All Logged Days";
+    }
+
+    function renderTablePage() {
+      const total = currentFilteredTrades.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+      const start = (currentPage - 1) * pageSize;
+      const rows = currentFilteredTrades.slice(start, start + pageSize);
+
+      document.getElementById("pageInfoText").textContent = `Page ${currentPage} of ${totalPages} (${total} rows)`;
+      document.getElementById("prevPageBtn").disabled = currentPage <= 1;
+      document.getElementById("nextPageBtn").disabled = currentPage >= totalPages;
+
+      document.getElementById("edgeTableBody").innerHTML = rows.map(t => {
+        const activeDay = isTradeActiveDay(t);
+        const ptsCls = Number(t.points) >= 0 ? "text-success fw-semibold" : "text-danger fw-semibold";
+        return `
+          <tr>
+            <td><strong>${t.session_date}</strong><div class="small text-muted-custom">${t.weekday}</div></td>
+            <td><span class="badge ${activeDay ? "bg-success text-dark" : "bg-secondary"}">${activeDay ? "ACTIVE" : "SHADOW"}</span></td>
+            <td><strong>${t.direction}</strong></td>
+            <td class="small">${t.crossover_time || "-"} → ${t.entry_time || "-"} → ${t.exit_time || "-"}</td>
+            <td class="small">${t.exit_reason || "-"}</td>
+            <td class="small"><span class="text-success">+${Number(t.mfe || 0).toFixed(1)}</span> / <span class="text-danger">-${Number(t.mae || 0).toFixed(1)}</span></td>
+            <td class="text-end ${ptsCls}">${Number(t.points) > 0 ? "+" : ""}${Number(t.points || 0).toFixed(2)}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    function buildChartsGrid() {
+      document.getElementById("chartsGrid").innerHTML = CHART_SPECS.map((sp, idx) => {
+        const colCls = idx < 2 ? "col-12 col-lg-6" : "col-12 col-md-6 col-xl-4";
+        return `
+          <div class="${colCls}">
+            <div class="panel-card">
+              <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                <strong class="small text-uppercase">${sp.title}</strong>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-1 px-2 tap-btn no-print" onclick="openFullscreenChart('${sp.id}')">Expand</button>
+              </div>
+              <div class="chart-box"><canvas id="${sp.id}"></canvas></div>
+              <div class="chart-summary-box" id="sum_body_${sp.id}"></div>
+            </div>
+          </div>`;
+      }).join("");
+    }
+
+    function renderAll() {
+      if (!rawPayload) return;
+      const allTrades = rawPayload.trades || [];
+      currentFilteredTrades = filterTrades(allTrades);
+      const agg = aggregateTrades(currentFilteredTrades);
+
+      document.getElementById("edgeMetaSummary").textContent =
+        `Showing ${currentFilteredTrades.length} of ${allTrades.length} logged 15m signals (${dayRegime === "ACTIVE_ONLY" ? "Mon/Wed/Thu" : "All Days"})`;
+      document.getElementById("edgeRowsCount").textContent = `${currentFilteredTrades.length} signals`;
+
+      renderSummaries(currentFilteredTrades, agg);
+
+      CHART_SPECS.forEach(sp => {
+        const cfg = createChartConfig(sp, currentFilteredTrades, agg);
+        const sumHtml = buildChartSummaryText(sp, currentFilteredTrades, agg);
+        chartConfigs[sp.id] = { title: sp.title, cfg, sumHtml };
+        document.getElementById(`sum_body_${sp.id}`).innerHTML = sumHtml;
+        if (chartInstances[sp.id]) chartInstances[sp.id].destroy();
+        chartInstances[sp.id] = new Chart(document.getElementById(sp.id).getContext("2d"), cfg);
+      });
+
+      renderTablePage();
+    }
+
+    function openFullscreenChart(chartId) {
+      const entry = chartConfigs[chartId];
+      if (!entry) return;
+      document.getElementById("fsChartTitle").textContent = entry.title;
+      document.getElementById("fsChartSummary").innerHTML = entry.sumHtml;
+      if (!fsModal) fsModal = new bootstrap.Modal(document.getElementById("fullscreenChartModal"));
+      fsModal.show();
+      setTimeout(() => {
+        if (fsChartInstance) fsChartInstance.destroy();
+        fsChartInstance = new Chart(document.getElementById("fullscreenChartCanvas").getContext("2d"), entry.cfg);
+      }, 150);
+    }
+
+    function exportCSV() {
+      const headers = ["Date", "Weekday", "Regime", "Direction", "EntryTime", "ExitTime", "ExitReason", "MFE", "MAE", "Points"];
+      const lines = [headers.join(",")];
+      currentFilteredTrades.forEach(r => {
+        const regime = isTradeActiveDay(r) ? "ACTIVE" : "SHADOW";
+        const vals = [r.session_date, r.weekday, regime, r.direction, r.entry_time, r.exit_time, r.exit_reason, r.mfe, r.mae, r.points]
+          .map(v => `"${String(v ?? "").replace(/"/g, '""')}"`);
+        lines.push(vals.join(","));
+      });
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `nifty_15m_070r_${dayRegime.toLowerCase()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportPDF() { window.print(); }
+
+    function computePositionPlan() {
+      const cap = Math.max(0, Number(document.getElementById("szCapital")?.value || 0));
+      const riskPct = Math.max(0, Number(document.getElementById("szRiskPct")?.value || 0));
+      const lotSize = Math.max(1, Number(document.getElementById("szLotSize")?.value || 1));
+      const slPts = Math.max(0.5, Number(document.getElementById("szSlPts")?.value || 1));
+      const entryRaw = document.getElementById("szEntry")?.value;
+      const hasEntry = entryRaw !== "" && !Number.isNaN(Number(entryRaw));
+      const entryVal = hasEntry ? Number(entryRaw) : null;
+      const dir = document.getElementById("szDir")?.value || "CALL";
+
+      const riskBudget = (cap * riskPct) / 100;
+      const riskPerLot = slPts * lotSize;
+      const lots = riskPerLot > 0 ? Math.max(1, Math.floor(riskBudget / riskPerLot)) : 1;
+      const totalQty = lots * lotSize;
+      const estLoss = totalQty * slPts;
+      const tgt70Pts = Number((slPts * TARGET_PCT).toFixed(2));
+
+      document.getElementById("szLotsOut").textContent = `${lots} ${lots === 1 ? "Lot" : "Lots"} (${totalQty} qty)`;
+      document.getElementById("szBudgetOut").textContent = `Risk Budget: ₹${Math.round(riskBudget).toLocaleString("en-IN")}`;
+      document.getElementById("szLossOut").textContent = `-₹${Math.round(estLoss).toLocaleString("en-IN")}`;
+      document.getElementById("szSlLevelOut").textContent = `SL Distance: ${slPts} pts`;
+      document.getElementById("szTgt70Out").textContent = `+${tgt70Pts} pts (0.70R)`;
+
+      if (hasEntry) {
+        const sign = dir === "CALL" ? 1 : -1;
+        const slPx = (entryVal - sign * slPts).toFixed(2);
+        const tgtPx = (entryVal + sign * tgt70Pts).toFixed(2);
+        document.getElementById("szTgt70PriceOut").textContent = `0.70R Target: ${tgtPx} | SL: ${slPx}`;
+      } else {
+        document.getElementById("szTgt70PriceOut").textContent = "Enter entry for exact level";
+      }
+      return { lots, totalQty, estLoss, tgt70Pts, slPts, dir };
+    }
+
+    function renderAlertsFeed(items, unreadCount) {
+      const badge = document.getElementById("notifUnreadBadge");
+      if (badge) {
+        badge.textContent = String(unreadCount || 0);
+        badge.style.display = unreadCount > 0 ? "" : "none";
+      }
+      const list = document.getElementById("notifFeedList");
+      if (!list) return;
+      if (!items || !items.length) {
+        list.innerHTML = '<div class="small text-muted-custom">No alerts yet.</div>';
+        return;
+      }
+
+      const newest = items[0];
+      const key = newest?.alert_key || newest?.id;
+      if (key && !seenAlertKeys.has(key)) {
+        const firstRun = seenAlertKeys.size === 0;
+        seenAlertKeys.add(key);
+        if (!firstRun) {
+          document.getElementById("toastAlertTitle").textContent = newest.title || "15m Signal Alert";
+          document.getElementById("toastAlertTime").textContent = newest.timestamp || "Now";
+          document.getElementById("toastAlertMsg").textContent = newest.message || "";
+          document.getElementById("toastAlertLink").href = newest.target_url || "/";
+          bootstrap.Toast.getOrCreateInstance(document.getElementById("liveAlertToast"), { delay: 6500 }).show();
+        }
+      }
+
+      list.innerHTML = items.map(it => `
+        <div class="p-2 mb-2 rounded border ${it.is_read ? "border-secondary border-opacity-25 opacity-75" : "border-info"}" style="background: var(--bg-sub);">
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <strong class="small">${it.title}</strong>
+            <span class="badge bg-dark border border-secondary text-info">${it.event_type}</span>
+          </div>
+          <div class="small mt-1">${it.message}</div>
+          <div class="small text-muted-custom mt-1">${it.timestamp || ""}</div>
+        </div>
+      `).join("");
+    }
+
+    async function loadData() {
+      try {
+        const [edRes, ntRes] = await Promise.all([
+          fetch("/api/15m/analytics", { cache: "no-store" }),
+          fetch("/api/15m/alerts?limit=25", { cache: "no-store" })
+        ]);
+        if (edRes.ok) {
+          rawPayload = await edRes.json();
+          renderAll();
+        }
+        if (ntRes.ok) {
+          const nt = await ntRes.json();
+          renderAlertsFeed(nt.items || [], nt.unread_count || 0);
+        }
+      } catch (_) {}
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(loadData, 15000);
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        loadData();
+        startPolling();
+      }
+    });
+
+    document.querySelectorAll("#dayRegimeGroup button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#dayRegimeGroup button").forEach(b => {
+          b.className = "btn btn-outline-secondary";
+        });
+        btn.className = "btn btn-success text-dark fw-semibold active";
+        dayRegime = btn.getAttribute("data-regime");
+        currentPage = 1;
+        renderAll();
+      });
+    });
+
+    document.querySelectorAll("#sliceFilterGroup button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#sliceFilterGroup button").forEach(b => {
+          b.className = "btn btn-outline-info";
+        });
+        btn.className = "btn btn-info text-dark active";
+        activeSlice = btn.getAttribute("data-slice");
+        currentPage = 1;
+        renderAll();
+      });
+    });
+
+    ["szCapital", "szRiskPct", "szLotSize", "szEntry", "szSlPts", "szDir"].forEach(id => {
+      document.getElementById(id)?.addEventListener("input", computePositionPlan);
+      document.getElementById(id)?.addEventListener("change", computePositionPlan);
+    });
+
+    document.getElementById("copyOrderPlanBtn")?.addEventListener("click", async () => {
+      const p = computePositionPlan();
+      const text = `NIFTY 15m [${p.dir}] | ${p.lots} Lot(s) (${p.totalQty} Qty) | Risk: ₹${Math.round(p.estLoss).toLocaleString("en-IN")} | SL: -${p.slPts} pts | 0.70R Target: +${p.tgt70Pts} pts`;
+      try { await navigator.clipboard.writeText(text); } catch (_) {}
+      document.getElementById("szCopyStatus").textContent = "Copied 0.70R plan!";
+    });
+
+    document.getElementById("themeToggleBtn")?.addEventListener("click", () => {
+      const root = document.documentElement;
+      root.setAttribute("data-theme", root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+      renderAll();
+    });
+
+    document.getElementById("reloadEdgeBtn")?.addEventListener("click", loadData);
+    document.getElementById("prevPageBtn")?.addEventListener("click", () => { if (currentPage > 1) { currentPage--; renderTablePage(); } });
+    document.getElementById("nextPageBtn")?.addEventListener("click", () => {
+      const maxP = Math.max(1, Math.ceil(currentFilteredTrades.length / pageSize));
+      if (currentPage < maxP) { currentPage++; renderTablePage(); }
+    });
+
+    buildChartsGrid();
+    computePositionPlan();
+    loadData();
+    startPolling();
+  </script>
+</body>
+</html>

@@ -368,5 +368,161 @@ def api_fyers_token():
     return jsonify({"ok": True, "access_token": result})
 
 
+
+
+def _load_fallback_15m_df(days_back: int = 90):
+    import pandas as pd
+    cache_candidates = [
+        BASE_DIR / "nifty_cache" / "nifty50_15m.csv",
+        BASE_DIR / "nifty_cache" / "nifty_15m.csv",
+    ]
+    for p in cache_candidates:
+        if p.exists():
+            try:
+                df = pd.read_csv(p)
+                if "timestamp" in df.columns and not df.empty:
+                    df["timestamp"] = pd.to_datetime(df["timestamp"])
+                    return df.tail(days_back * 26).reset_index(drop=True)
+            except Exception:
+                pass
+    return None
+
+
+
+@app.get("/api/15m/alerts")
+def api_get_15m_alerts():
+    from supabase_15m_store import fetch_recent_15m_alerts
+    limit = max(1, min(100, int(request.args.get("limit", 25) or 25)))
+    items = fetch_recent_15m_alerts(limit=limit)
+    unread = sum(1 for x in items if not x.get("is_read"))
+    return jsonify({"ok": True, "items": items, "unread_count": unread})
+
+
+@app.post("/api/15m/alerts")
+def api_post_15m_alert():
+    from supabase_15m_store import classify_weekday_regime, emit_15m_alert
+    p = request.get_json(silent=True) or {}
+    weekday = str(p.get("weekday") or datetime.now(IST).strftime("%A"))
+    eligible, skip_reason = classify_weekday_regime(weekday)
+    event_type = str(p.get("event_type") or "signal_entry")
+    if not eligible and event_type in ("signal_entry", "target_70_hit"):
+        event_type = "skip_weekday"
+
+    session_date = str(p.get("session_date") or datetime.now(IST).strftime("%Y-%m-%d"))
+    bar_time = str(p.get("bar_time") or datetime.now(IST).strftime("%H:%M"))
+    direction = str(p.get("direction") or "CALL").upper()
+    title = str(p.get("title") or f"15m {direction} {event_type.replace('_', ' ').upper()}")
+    msg = str(
+        p.get("message")
+        or (
+            f"{session_date} ({weekday}, {skip_reason}) {bar_time} {direction} | "
+            f"Entry: {p.get('entry_price', '-')} | SL: {p.get('sl_price', '-')} | 0.70R Target: {p.get('target_70_price', '-')}"
+        )
+    )
+    res = emit_15m_alert(
+        session_date=session_date,
+        bar_time=bar_time,
+        direction=direction,
+        event_type=event_type,
+        title=title,
+        message=msg,
+        target_url=str(p.get("target_url") or "/15m-edge"),
+        priority="HIGH" if event_type in ("signal_entry", "target_70_hit", "stop_loss") else "INFO",
+    )
+    return jsonify(res)
+
+
+@app.get("/api/15m/analytics")
+def api_15m_analytics():
+    days_back = max(5, min(365, int(request.args.get("days_back", 90) or 90)))
+    candles_df = None
+    source_mode = "unavailable"
+    detail_msg = "No 15m candle data available yet."
+
+    try:
+        client = build_fyers_client()
+        if client is not None:
+            candles_df = fetch_recent_15m_candles(client, days_back=days_back)
+            if candles_df is not None and not candles_df.empty:
+                source_mode = "fyers_live_15m"
+                detail_msg = f"Loaded {len(candles_df)} 15m bars ({days_back}d window)."
+    except Exception as exc:
+        detail_msg = f"Live fetch fallback: {exc}"
+
+    if candles_df is None or candles_df.empty:
+        fb_df = _load_fallback_15m_df(days_back=days_back)
+        if fb_df is not None and not fb_df.empty:
+            candles_df = fb_df
+            source_mode = "local_cache_15m"
+            detail_msg = f"Loaded {len(candles_df)} cached 15m bars."
+
+    if candles_df is None or candles_df.empty:
+        return jsonify({
+            "ok": True,
+            "source_mode": source_mode,
+            "message": detail_msg,
+            "trades": [],
+            "paper_summary": {},
+            "series": {},
+        })
+
+    from strategy_15m_service import EngineState, run_engine_on_closed_bars, split_closed_and_preview_bars
+    payload = build_analytics_payload(candles_df, manual_trades=_load_manual_trades())
+    closed_df, _ = split_closed_and_preview_bars(candles_df)
+    _, engine_events = run_engine_on_closed_bars(closed_df, EngineState(), persist_path=None)
+    all_closed_trades = [
+        e["trade"] for e in engine_events
+        if str(e.get("event", "")).startswith("EXIT_") and e.get("trade")
+    ]
+    raw_trades = all_closed_trades[::-1] if all_closed_trades else (payload.get("recent_15m_trades") or [])
+    try:
+        from supabase_15m_store import sync_15m_trades_to_supabase
+        if all_closed_trades:
+            sync_15m_trades_to_supabase(all_closed_trades)
+    except Exception:
+        pass
+    active_days = {"Monday", "Wednesday", "Thursday"}
+
+    normalized_trades = []
+    for idx, tr in enumerate(raw_trades, 1):
+        wk = str(tr.get("weekday") or "")
+        pts = float(tr.get("pnl_pts", 0.0) or 0.0)
+        entry_raw = str(tr.get("entry_time") or "")
+        exit_raw = str(tr.get("exit_time") or "")
+        entry_hm = entry_raw[11:16] if len(entry_raw) >= 16 else entry_raw
+        exit_hm = exit_raw[11:16] if len(exit_raw) >= 16 else exit_raw
+        outcome = "WIN" if pts > 0 else ("LOSS" if pts < 0 else "FLAT")
+        normalized_trades.append({
+            "id": tr.get("id") or f"15m_{idx}_{tr.get('date', '')}_{entry_hm}",
+            "session_date": str(tr.get("date") or ""),
+            "weekday": wk,
+            "is_eligible_day": wk in active_days,
+            "direction": str(tr.get("direction") or ""),
+            "crossover_time": str(tr.get("cross_time") or entry_hm),
+            "entry_time": entry_hm,
+            "exit_time": exit_hm,
+            "exit_reason": str(tr.get("exit_reason") or ""),
+            "mfe": float(tr.get("mfe_pts", 0.0) or 0.0),
+            "mae": float(tr.get("mae_pts", 0.0) or 0.0),
+            "points": round(pts, 2),
+            "r_val": round(float(tr.get("r_val", 0.0) or 0.0), 2),
+            "outcome": outcome,
+        })
+
+    return jsonify({
+        "ok": True,
+        "source_mode": source_mode,
+        "message": detail_msg,
+        "trades": normalized_trades,
+        "paper_summary": payload.get("paper_summary") or {},
+        "series": payload.get("series") or {},
+    })
+
+
+@app.get("/15m-edge")
+def edge_15m_analytics():
+    return render_template("analytics_15m.html")
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5050, debug=False)
