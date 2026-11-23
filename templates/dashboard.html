@@ -45,6 +45,16 @@
   </style>
 </head>
 <body>
+<!-- Quick Page Navigation -->
+<div id="quick-page-nav" class="d-flex flex-wrap align-items-center justify-content-between gap-2 px-3 py-2" style="background:var(--card);border-bottom:1px solid var(--border);">
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-primary fw-semibold">Dashboard</a>
+    <a href="/15m-edge" class="btn btn-sm btn-outline-info fw-semibold">15m Edge &amp; Alerts</a>
+    <a href="/auth" class="btn btn-sm btn-outline-secondary fw-semibold" style="color:var(--text);border-color:var(--border);">Auth / Fyers</a>
+  </div>
+  <span class="muted mono">0.70R &bull; Mon/Wed/Thu Active</span>
+</div>
+
 <div id="fyersFlashContainer" class="container-fluid mt-2">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}

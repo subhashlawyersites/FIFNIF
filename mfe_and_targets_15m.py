@@ -1,10 +1,10 @@
-﻿from datetime import time as dtime
+from datetime import time as dtime
 import pandas as pd
 from pull_and_test import load_or_fetch_candles
 
 
-def analyze_15m_targets_and_mfe(max_trades_per_day: int = 2, require_color: bool = True):
-    df = load_or_fetch_candles(None, "15")
+def analyze_15m_targets_and_mfe(max_trades_per_day: int = 2, require_color: bool = True, target_pct: float = 1.00, df_15m: pd.DataFrame | None = None):
+    df = df_15m if df_15m is not None else load_or_fetch_candles(None, "15")
     work = df.copy()
     work["timestamp"] = pd.to_datetime(work["timestamp"])
     work = work.sort_values("timestamp").reset_index(drop=True)
@@ -24,7 +24,7 @@ def analyze_15m_targets_and_mfe(max_trades_per_day: int = 2, require_color: bool
 
     entry_earliest = dtime(9, 45)
     cutoff_time = dtime(15, 15)
-    target_levels = [0.6, 0.7, 0.8, 0.9, 1.0]
+    target_levels = [0.7, 0.8, 0.9, 1.0]
 
     # Collect raw trades with peak favorable excursion while open
     raw_trades = []
@@ -121,9 +121,12 @@ def analyze_15m_targets_and_mfe(max_trades_per_day: int = 2, require_color: bool
     rtdf = pd.DataFrame(raw_trades)
     print("\n=== 1. TARGET-SIDE FAVORABLE MOVEMENT (MFE BEFORE 15:15) ===")
     print(f"Total Entries : {len(rtdf)}")
+    if rtdf.empty:
+        print("No entries matched filters in this dataset.")
+        return
     print(f"Avg Max Fav R : {round(float(rtdf['max_fav_r'].mean()), 3)} R | Median Max Fav R: {round(float(rtdf['max_fav_r'].median()), 3)} R")
     print(f"Avg Max Fav Pt: {round(float(rtdf['max_fav_pts'].mean()), 1)} pts | Median Max Fav Pt: {round(float(rtdf['max_fav_pts'].median()), 1)} pts")
-    for lvl in [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5]:
+    for lvl in [0.7, 0.8, 0.9, 1.0]:
         pct_reached = round(100.0 * float((rtdf["max_fav_r"] >= lvl).mean()), 2)
         cnt_reached = int((rtdf["max_fav_r"] >= lvl).sum())
         print(f"  Reached >= {lvl:.2f}R : {cnt_reached}/{len(rtdf)} trades ({pct_reached}%)")

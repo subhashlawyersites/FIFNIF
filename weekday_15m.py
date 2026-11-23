@@ -1,4 +1,4 @@
-﻿from datetime import time as dtime
+from datetime import time as dtime
 import pandas as pd
 from pull_and_test import load_or_fetch_candles
 
