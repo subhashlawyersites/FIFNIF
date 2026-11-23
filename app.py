@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, send_from_directory, redirect, url_for
+from flask import flash, Flask, jsonify, render_template, request, send_from_directory, redirect, url_for
 from fyers_apiv3 import fyersModel
 
 from live_engine_15m import IST, build_fyers_client, fetch_recent_15m_candles
@@ -95,6 +95,10 @@ def _exchange_fyers_auth_code(
     _update_env_keys(updates)
     os.environ.update(updates)
     save_fyers_token_to_db((os.getenv("FYERS_ACCESS_TOKEN") or "").strip())
+    try:
+        flash("Connected Live with Fyers", "success")
+    except Exception:
+        pass
     return True, access_token
 
 

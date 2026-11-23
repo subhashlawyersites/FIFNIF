@@ -45,6 +45,19 @@
   </style>
 </head>
 <body>
+<div id="fyersFlashContainer" class="container-fluid mt-2">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, msg in messages %}
+        <div class="alert alert-{{ 'success' if category == 'message' else category }} alert-dismissible fade show py-2 mb-2" role="alert">
+          {{ msg }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+</div>
+
 <div class="container-fluid py-3 px-3 px-md-4" style="max-width: 1440px;">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
@@ -514,12 +527,30 @@
 (function () {
   const badge = document.getElementById("liveFeedStatusBadge");
   const disconnectBtn = document.getElementById("disconnectLiveFeedBtn");
+  let wasConnected = false;
+  function showLiveConnectedBanner(msg) {
+    const box = document.getElementById("fyersFlashContainer");
+    if (!box) return;
+    if (document.getElementById("liveConnectedAlert")) return;
+    const div = document.createElement("div");
+    div.id = "liveConnectedAlert";
+    div.className = "alert alert-success alert-dismissible fade show py-2 mb-2";
+    div.setAttribute("role", "alert");
+    div.innerHTML = `${msg} <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+    box.prepend(div);
+  }
+
   function renderFeedState(connected) {
     if (!badge) return;
     if (connected) {
+      if (!wasConnected) {
+        showLiveConnectedBanner("Connected Live with Fyers");
+      }
+      wasConnected = true;
       badge.textContent = "Connected Live with Fyers";
       badge.className = "badge-status bg-success text-light";
     } else {
+      wasConnected = false;
       badge.textContent = "Disconnected from Live Feed";
       badge.className = "badge-status bg-danger text-light";
     }
