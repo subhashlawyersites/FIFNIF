@@ -94,6 +94,7 @@ def _exchange_fyers_auth_code(
     }
     _update_env_keys(updates)
     os.environ.update(updates)
+    save_fyers_token_to_db((os.getenv("FYERS_ACCESS_TOKEN") or "").strip())
     return True, access_token
 
 
@@ -139,9 +140,110 @@ def api_fyers_exchange():
     return jsonify({"ok": True, "message": "Fyers Authentication successful"})
 
 
+# --- SUPABASE_FYERS_TOKEN_STORE_START ---
+def _get_token_db_url() -> str:
+    for k in ("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL"):
+        v = (os.getenv(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _ensure_token_table(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fyers_runtime_tokens (
+                id TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+
+def save_fyers_token_to_db(token: str) -> bool:
+    tok = (token or "").strip()
+    db_url = _get_token_db_url()
+    if not db_url:
+        return False
+    try:
+        import psycopg
+        with psycopg.connect(db_url, autocommit=True) as conn:
+            _ensure_token_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO fyers_runtime_tokens (id, access_token, updated_at)
+                    VALUES ('default', %s, NOW())
+                    ON CONFLICT (id) DO UPDATE
+                    SET access_token = EXCLUDED.access_token, updated_at = NOW()
+                """, (tok,))
+        return True
+    except Exception:
+        pass
+    try:
+        import psycopg2
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        try:
+            _ensure_token_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO fyers_runtime_tokens (id, access_token, updated_at)
+                    VALUES ('default', %s, NOW())
+                    ON CONFLICT (id) DO UPDATE
+                    SET access_token = EXCLUDED.access_token, updated_at = NOW()
+                """, (tok,))
+        finally:
+            conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def load_fyers_token_from_db() -> str:
+    db_url = _get_token_db_url()
+    if not db_url:
+        return ""
+    try:
+        import psycopg
+        with psycopg.connect(db_url, autocommit=True) as conn:
+            _ensure_token_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT access_token FROM fyers_runtime_tokens WHERE id = 'default'")
+                row = cur.fetchone()
+                return (row[0] or "").strip() if row else ""
+    except Exception:
+        pass
+    try:
+        import psycopg2
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        try:
+            _ensure_token_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT access_token FROM fyers_runtime_tokens WHERE id = 'default'")
+                row = cur.fetchone()
+                return (row[0] or "").strip() if row else ""
+        finally:
+            conn.close()
+    except Exception:
+        return ""
+
+
+def get_active_fyers_token() -> str:
+    env_tok = (os.getenv("FYERS_ACCESS_TOKEN") or "").strip()
+    if env_tok:
+        return env_tok
+    db_tok = load_fyers_token_from_db()
+    if db_tok:
+        os.environ["FYERS_ACCESS_TOKEN"] = db_tok
+    return db_tok
+# --- SUPABASE_FYERS_TOKEN_STORE_END ---
+
+
 @app.post("/api/fyers/disconnect")
 def api_fyers_disconnect():
     os.environ["FYERS_ACCESS_TOKEN"] = ""
+    save_fyers_token_to_db("")
     return jsonify({"ok": True, "connected": False, "message": "Disconnected from Live Feed"})
 
 
