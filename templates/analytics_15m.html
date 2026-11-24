@@ -294,6 +294,38 @@
       </div>
     </div>
 
+    <!-- Compounding Edge Strip (MFE, MAE, R-Multiple) -->
+    <div class="row g-2 mb-3" id="compoundingEdgeStrip">
+      <div class="col-6 col-md-3">
+        <div class="kpi-box">
+          <div class="kpi-label">Expectancy (Avg R / Trade)</div>
+          <div class="kpi-val text-info" id="cmpExpectancyR">-</div>
+          <div class="kpi-sub" id="cmpTotalRSub">Cumulative R: -</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="kpi-box">
+          <div class="kpi-label">0.70R Target Hit Rate</div>
+          <div class="kpi-val text-success" id="cmpHit70Rate">-</div>
+          <div class="kpi-sub" id="cmpHit70Sub">Hits (&ge;0.70R): -</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="kpi-box">
+          <div class="kpi-label">MFE vs Captured Edge</div>
+          <div class="kpi-val text-warning" id="cmpMfeCapture">-</div>
+          <div class="kpi-sub" id="cmpMfeSub">Avg MFE: - | Avg Pts: -</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="kpi-box">
+          <div class="kpi-label">MAE Heat / Drawdown</div>
+          <div class="kpi-val text-danger" id="cmpMaeHeat">-</div>
+          <div class="kpi-sub" id="cmpMaeSub">Max MAE Excursion: -</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Charts Grid -->
     <div class="row g-3" id="chartsGrid"></div>
 
@@ -651,18 +683,77 @@
 
       if (fr.is_stale) {
         badge.className = "badge bg-danger";
-        badge.textContent = `STALE ? ${fr.age_minutes}m lag`;
+        badge.textContent = `STALE · ${fr.age_minutes}m lag`;
       } else if (fr.is_market_hours_ist) {
         badge.className = "badge bg-success text-dark";
-        badge.textContent = `LIVE IST ? ${fr.last_bar_hm || fr.last_bar_ist}`;
+        badge.textContent = `LIVE IST · ${fr.last_bar_hm || fr.last_bar_ist}`;
       } else {
         badge.className = "badge bg-secondary";
-        badge.textContent = `LAST BAR ? ${fr.last_bar_hm || fr.last_bar_ist}`;
+        badge.textContent = `LAST BAR · ${fr.last_bar_hm || fr.last_bar_ist}`;
       }
 
       const ageText = (typeof fr.age_minutes === "number") ? `age ${fr.age_minutes}m` : "";
-      const alertText = latestAlertIstLabel ? ` ? Alert: ${latestAlertIstLabel}` : "";
+      const alertText = latestAlertIstLabel ? ` · Alert: ${latestAlertIstLabel}` : "";
       meta.textContent = `${fr.last_bar_ist}${ageText ? ` (${ageText})` : ""}${alertText}`;
+    }
+
+    
+    function renderCompoundingStrip(trades) {
+      const expEl = document.getElementById("cmpExpectancyR");
+      const totRSub = document.getElementById("cmpTotalRSub");
+      const hitEl = document.getElementById("cmpHit70Rate");
+      const hitSub = document.getElementById("cmpHit70Sub");
+      const mfeEl = document.getElementById("cmpMfeCapture");
+      const mfeSub = document.getElementById("cmpMfeSub");
+      const maeEl = document.getElementById("cmpMaeHeat");
+      const maeSub = document.getElementById("cmpMaeSub");
+      if (!expEl || !hitEl || !mfeEl || !maeEl) return;
+
+      const list = Array.isArray(trades) ? trades : [];
+      if (!list.length) {
+        expEl.textContent = "0.00R";
+        totRSub.textContent = "Cumulative R: 0.00R (0 trades)";
+        hitEl.textContent = "0.0%";
+        hitSub.textContent = "Hits (≥0.70R): 0 / 0";
+        mfeEl.textContent = "0%";
+        mfeSub.textContent = "Avg MFE: 0.0 pts | Avg Pts: 0.0 pts";
+        maeEl.textContent = "0.0 pts";
+        maeSub.textContent = "Max MAE Excursion: 0.0 pts";
+        return;
+      }
+
+      const n = list.length;
+      const rVals = list.map(t => Number(t.r_val || 0));
+      const ptsVals = list.map(t => Number(t.points || 0));
+      const mfeVals = list.map(t => Math.abs(Number(t.mfe || 0)));
+      const maeVals = list.map(t => Math.abs(Number(t.mae || 0)));
+
+      const sumR = rVals.reduce((a, b) => a + b, 0);
+      const avgR = sumR / n;
+      const hits70 = rVals.filter(r => r >= 0.70 || (r > 0 && Math.abs(r - 0.70) < 1e-6)).length;
+      const hitPct = (hits70 / n) * 100;
+
+      const sumPts = ptsVals.reduce((a, b) => a + b, 0);
+      const sumMfe = mfeVals.reduce((a, b) => a + b, 0);
+      const avgMfe = sumMfe / n;
+      const avgPts = sumPts / n;
+      const capPct = sumMfe > 0 ? Math.max(0, Math.min(200, (Math.max(0, sumPts) / sumMfe) * 100)) : 0;
+
+      const avgMae = maeVals.reduce((a, b) => a + b, 0) / n;
+      const maxMae = Math.max(...maeVals);
+
+      expEl.className = `kpi-val ${avgR >= 0 ? "text-success" : "text-danger"}`;
+      expEl.textContent = `${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R`;
+      totRSub.textContent = `Cumulative R: ${sumR >= 0 ? "+" : ""}${sumR.toFixed(2)}R (${n} trades)`;
+
+      hitEl.textContent = `${hitPct.toFixed(1)}%`;
+      hitSub.textContent = `Hits (≥0.70R): ${hits70} / ${n}`;
+
+      mfeEl.textContent = `${capPct.toFixed(0)}% captured`;
+      mfeSub.textContent = `Avg MFE: ${avgMfe.toFixed(1)} pts | Avg Pts: ${avgPts >= 0 ? "+" : ""}${avgPts.toFixed(1)} pts`;
+
+      maeEl.textContent = `${avgMae.toFixed(1)} pts`;
+      maeSub.textContent = `Max MAE Excursion: ${maxMae.toFixed(1)} pts`;
     }
 
     function renderAll() {
@@ -678,6 +769,7 @@
       document.getElementById("edgeRowsCount").textContent = `${currentFilteredTrades.length} signals`;
 
       renderSummaries(currentFilteredTrades, agg);
+      renderCompoundingStrip(currentFilteredTrades);
 
       CHART_SPECS.forEach(sp => {
         const cfg = createChartConfig(sp, currentFilteredTrades, agg);
