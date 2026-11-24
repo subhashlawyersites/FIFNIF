@@ -432,6 +432,97 @@ def api_post_15m_alert():
     return jsonify(res)
 
 
+
+from datetime import datetime as _dt_now_cls
+from zoneinfo import ZoneInfo as _ZoneInfo_cls
+
+_IST_TZ = _ZoneInfo_cls("Asia/Kolkata")
+
+def _parse_ist_dt(val):
+    if val is None or val == "":
+        return None
+    try:
+        if hasattr(val, "tzinfo"):
+            dt = val.to_pydatetime() if hasattr(val, "to_pydatetime") else val
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=_IST_TZ)
+            return dt.astimezone(_IST_TZ)
+        s = str(val).strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = _dt_now_cls.fromisoformat(s)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=_IST_TZ)
+        return dt.astimezone(_IST_TZ)
+    except Exception:
+        return None
+
+def _compute_15m_freshness_ist(candles_df=None, trades=None, stale_after_minutes=20):
+    now_ist = _dt_now_cls.now(_IST_TZ)
+    latest_dt = None
+    latest_src = "none"
+
+    if candles_df is not None and getattr(candles_df, "empty", True) is False:
+        idx = getattr(candles_df, "index", None)
+        if idx is not None and len(idx) > 0:
+            latest_dt = _parse_ist_dt(idx[-1])
+            if latest_dt is not None:
+                latest_src = "candle_index"
+        if latest_dt is None:
+            for col in ("timestamp", "datetime", "date", "time"):
+                if col in getattr(candles_df, "columns", []):
+                    latest_dt = _parse_ist_dt(candles_df[col].iloc[-1])
+                    if latest_dt is not None:
+                        latest_src = f"candle_{col}"
+                        break
+
+    if latest_dt is None and trades:
+        for tr in trades:
+            for key in ("exit_time", "entry_time", "session_date"):
+                latest_dt = _parse_ist_dt(tr.get(key))
+                if latest_dt is not None:
+                    latest_src = f"trade_{key}"
+                    break
+            if latest_dt is not None:
+                break
+
+    if latest_dt is None:
+        return {
+            "timezone": "IST",
+            "now_ist": now_ist.strftime("%Y-%m-%d %H:%M IST"),
+            "last_bar_ist": None,
+            "age_minutes": None,
+            "is_market_hours_ist": False,
+            "is_stale": True,
+            "status": "NO_DATA",
+            "source": latest_src,
+        }
+
+    age_minutes = max(0, int((now_ist - latest_dt).total_seconds() // 60))
+    hm_now = now_ist.hour * 60 + now_ist.minute
+    is_mkt_hours = (now_ist.weekday() < 5) and ((9 * 60 + 15) <= hm_now <= (15 * 60 + 30))
+    is_stale = bool(is_mkt_hours and age_minutes > stale_after_minutes)
+
+    if is_stale:
+        status = "STALE"
+    elif is_mkt_hours:
+        status = "LIVE_FRESH"
+    else:
+        status = "OFF_HOURS"
+
+    return {
+        "timezone": "IST",
+        "now_ist": now_ist.strftime("%Y-%m-%d %H:%M IST"),
+        "last_bar_ist": latest_dt.strftime("%Y-%m-%d %H:%M IST"),
+        "last_bar_hm": latest_dt.strftime("%H:%M IST"),
+        "age_minutes": age_minutes,
+        "stale_after_minutes": stale_after_minutes,
+        "is_market_hours_ist": is_mkt_hours,
+        "is_stale": is_stale,
+        "status": status,
+        "source": latest_src,
+    }
+
 @app.get("/api/15m/analytics")
 def api_15m_analytics():
     days_back = max(5, min(365, int(request.args.get("days_back", 90) or 90)))
@@ -509,10 +600,12 @@ def api_15m_analytics():
             "outcome": outcome,
         })
 
+    freshness = _compute_15m_freshness_ist(candles_df=candles_df, trades=normalized_trades, stale_after_minutes=20)
     return jsonify({
         "ok": True,
         "source_mode": source_mode,
         "message": detail_msg,
+        "freshness": freshness,
         "trades": normalized_trades,
         "paper_summary": payload.get("paper_summary") or {},
         "series": payload.get("series") or {},

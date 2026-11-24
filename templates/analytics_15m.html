@@ -138,6 +138,8 @@
         <strong class="fs-6">15m Signal &amp; Edge Lab</strong>
         <span class="badge bg-success text-dark">Target: 0.70R</span>
         <span class="badge bg-info text-dark">Active: Mon, Wed, Thu</span>
+        <span id="istFreshnessBadge" class="badge bg-secondary" title="15m data freshness in IST">IST: checking...</span>
+        <small id="istFreshnessMeta" class="text-muted-custom" style="font-size: 0.78rem;"></small>
       </div>
       <div class="d-flex align-items-center gap-2 flex-wrap">
         <a href="/" class="btn btn-sm btn-outline-info tap-btn">Dashboard</a>
@@ -631,7 +633,40 @@
       }).join("");
     }
 
+    
+    let latestAlertIstLabel = "";
+
+    function updateIstFreshnessUI() {
+      const badge = document.getElementById("istFreshnessBadge");
+      const meta = document.getElementById("istFreshnessMeta");
+      if (!badge || !meta) return;
+
+      const fr = (typeof rawPayload !== "undefined" && rawPayload && rawPayload.freshness) ? rawPayload.freshness : null;
+      if (!fr || !fr.last_bar_ist) {
+        badge.className = "badge bg-warning text-dark";
+        badge.textContent = "IST: No Bar";
+        meta.textContent = latestAlertIstLabel ? `Alert: ${latestAlertIstLabel}` : "";
+        return;
+      }
+
+      if (fr.is_stale) {
+        badge.className = "badge bg-danger";
+        badge.textContent = `STALE ? ${fr.age_minutes}m lag`;
+      } else if (fr.is_market_hours_ist) {
+        badge.className = "badge bg-success text-dark";
+        badge.textContent = `LIVE IST ? ${fr.last_bar_hm || fr.last_bar_ist}`;
+      } else {
+        badge.className = "badge bg-secondary";
+        badge.textContent = `LAST BAR ? ${fr.last_bar_hm || fr.last_bar_ist}`;
+      }
+
+      const ageText = (typeof fr.age_minutes === "number") ? `age ${fr.age_minutes}m` : "";
+      const alertText = latestAlertIstLabel ? ` ? Alert: ${latestAlertIstLabel}` : "";
+      meta.textContent = `${fr.last_bar_ist}${ageText ? ` (${ageText})` : ""}${alertText}`;
+    }
+
     function renderAll() {
+      updateIstFreshnessUI();
       if (!rawPayload) return;
       const allTrades = rawPayload.trades || [];
       currentFilteredTrades = filterTrades(allTrades);
