@@ -620,5 +620,109 @@ def edge_15m_analytics():
     return render_template("analytics_15m.html")
 
 
+
+MULTI_INDEX_UNIVERSE = [
+    {"key": "NIFTY50", "label": "NIFTY 50", "symbol": "NSE:NIFTY50-INDEX", "expiry_note": "Weekly Tue / Monthly"},
+    {"key": "SENSEX", "label": "BSE SENSEX", "symbol": "BSE:SENSEX-INDEX", "expiry_note": "Weekly Thu / Monthly"},
+    {"key": "BANKNIFTY", "label": "BANKNIFTY", "symbol": "NSE:NIFTYBANK-INDEX", "expiry_note": "Monthly (Last Tue)"},
+    {"key": "FINNIFTY", "label": "FINNIFTY", "symbol": "NSE:FINNIFTY-INDEX", "expiry_note": "Monthly (Last Tue)"},
+]
+
+
+@app.get("/api/15m/multi-index-backtest")
+def api_15m_multi_index_backtest():
+    from strategy_15m_service import EngineState, run_engine_on_closed_bars, split_closed_and_preview_bars
+
+    try:
+        days_back = max(5, min(180, int(request.args.get("days_back", 45))))
+    except Exception:
+        days_back = 45
+
+    requested_keys = [
+        k.strip().upper()
+        for k in str(request.args.get("indexes") or "").split(",")
+        if k.strip()
+    ]
+    universe = (
+        [u for u in MULTI_INDEX_UNIVERSE if u["key"] in requested_keys]
+        if requested_keys
+        else MULTI_INDEX_UNIVERSE
+    )
+
+    client = None
+    try:
+        from fyers_apiv3 import fyersModel
+        token = get_active_fyers_token()
+        client_id = (os.getenv("FYERS_CLIENT_ID") or "").strip().strip('"').strip("'")
+        if token and client_id:
+            client = fyersModel.FyersModel(client_id=client_id, token=token, log_path="")
+        elif token:
+            client = build_fyers_client()
+    except Exception:
+        client = None
+
+    results = []
+    for idx_meta in universe:
+        sym = idx_meta["symbol"]
+        try:
+            if client is None:
+                raise RuntimeError("No active Fyers token")
+            df = fetch_recent_15m_candles(client, days_back=days_back, symbol=sym)
+            closed_df, _ = split_closed_and_preview_bars(df, now_ist=datetime.now(IST))
+            st, _ = run_engine_on_closed_bars(closed_df, EngineState(), persist_path=None)
+            trades = getattr(st, "closed_trades", None) or []
+
+            n = len(trades)
+            wins = [t for t in trades if float(t.get("pnl_pts", 0.0) or 0.0) > 0]
+            r_vals = [float(t.get("r_val", 0.0) or 0.0) for t in trades]
+            pts_vals = [float(t.get("pnl_pts", 0.0) or 0.0) for t in trades]
+            mfe_vals = [abs(float(t.get("mfe_pts", 0.0) or 0.0)) for t in trades]
+            mae_vals = [abs(float(t.get("mae_pts", 0.0) or 0.0)) for t in trades]
+
+            by_weekday = {}
+            for wd in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"):
+                w_trades = [t for t in trades if str(t.get("weekday") or "") == wd]
+                w_r = [float(t.get("r_val", 0.0) or 0.0) for t in w_trades]
+                w_pts = [float(t.get("pnl_pts", 0.0) or 0.0) for t in w_trades]
+                by_weekday[wd[:3]] = {
+                    "trades": len(w_trades),
+                    "avg_r": round(sum(w_r) / len(w_trades), 2) if w_trades else 0.0,
+                    "net_pts": round(sum(w_pts), 1),
+                }
+
+            results.append({
+                "key": idx_meta["key"],
+                "label": idx_meta["label"],
+                "symbol": sym,
+                "expiry_note": idx_meta["expiry_note"],
+                "ok": True,
+                "closed_bars": int(len(closed_df)),
+                "trades_count": n,
+                "win_rate_pct": round((len(wins) / n) * 100.0, 1) if n else 0.0,
+                "avg_r": round(sum(r_vals) / n, 2) if n else 0.0,
+                "cum_r": round(sum(r_vals), 2),
+                "cum_pts": round(sum(pts_vals), 1),
+                "avg_mfe_pts": round(sum(mfe_vals) / n, 1) if n else 0.0,
+                "avg_mae_pts": round(sum(mae_vals) / n, 1) if n else 0.0,
+                "by_weekday": by_weekday,
+            })
+        except Exception as exc:
+            results.append({
+                "key": idx_meta["key"],
+                "label": idx_meta["label"],
+                "symbol": sym,
+                "expiry_note": idx_meta["expiry_note"],
+                "ok": False,
+                "error": str(exc),
+            })
+
+    return jsonify({
+        "ok": True,
+        "research_only": True,
+        "days_back": days_back,
+        "indexes": results,
+    })
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5050, debug=False)

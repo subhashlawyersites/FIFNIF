@@ -329,6 +329,45 @@
     <!-- Charts Grid -->
     <div class="row g-3" id="chartsGrid"></div>
 
+    <!-- Multi-Index Research Panel (Read-Only Comparison) -->
+    <div class="panel-card mt-3 no-print" id="multiIndexResearchCard">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <strong class="small text-uppercase">Multi-Index Research (Mon-Fri Unfiltered)</strong>
+          <span class="badge bg-secondary">Read-Only | No Live Alerts</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <select id="multiIdxDays" class="form-select form-select-sm" style="width:auto;">
+            <option value="30">30 Days</option>
+            <option value="45" selected>45 Days</option>
+            <option value="90">90 Days</option>
+          </select>
+          <button type="button" class="btn btn-sm btn-info text-dark fw-semibold tap-btn" id="runMultiIdxBtn" onclick="runMultiIndexBacktest()">Run Index Comparison</button>
+        </div>
+      </div>
+      <div class="small text-muted-custom mb-2" id="multiIdxStatus">Compare NIFTY 50, BSE SENSEX (Thu weekly), BANKNIFTY, and FINNIFTY on identical 15m 0.70R rules.</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" id="multiIndexTable" style="color: var(--text-main);">
+          <thead>
+            <tr>
+              <th>Index</th>
+              <th>Expiry Profile</th>
+              <th>Trades</th>
+              <th>Win %</th>
+              <th>Avg R</th>
+              <th>Cum R</th>
+              <th>Cum Pts</th>
+              <th>Avg MFE / MAE</th>
+              <th>Best / Weakest Day</th>
+            </tr>
+          </thead>
+          <tbody id="multiIndexBody">
+            <tr><td colspan="9" class="text-muted-custom small">Click "Run Index Comparison" to evaluate indexes with active Fyers historical access.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Breakdown Table -->
     <div class="panel-card mt-3" id="breakdownTableCard">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 no-print">
@@ -795,6 +834,66 @@
         if (fsChartInstance) fsChartInstance.destroy();
         fsChartInstance = new Chart(document.getElementById("fullscreenChartCanvas").getContext("2d"), entry.cfg);
       }, 150);
+    }
+
+    
+    async function runMultiIndexBacktest() {
+      const btn = document.getElementById("runMultiIdxBtn");
+      const statusEl = document.getElementById("multiIdxStatus");
+      const tbody = document.getElementById("multiIndexBody");
+      const daysSel = document.getElementById("multiIdxDays");
+      const daysBack = daysSel ? Number(daysSel.value || 45) : 45;
+
+      if (btn) btn.disabled = true;
+      if (statusEl) statusEl.textContent = `Running ${daysBack}-day read-only 15m backtest across NIFTY 50, BSE SENSEX, BANKNIFTY, and FINNIFTY...`;
+
+      try {
+        const resp = await fetch(`/api/15m/multi-index-backtest?days_back=${encodeURIComponent(daysBack)}`);
+        const data = await resp.json();
+        const rows = Array.isArray(data.indexes) ? data.indexes : [];
+        if (!resp.ok || !data.ok || !rows.length) {
+          if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="text-danger small">Failed to load multi-index comparison.</td></tr>`;
+          if (statusEl) statusEl.textContent = "Index comparison failed.";
+          return;
+        }
+
+        tbody.innerHTML = rows.map(r => {
+          if (!r.ok) {
+            return `<tr>
+              <td><strong>${r.label || r.key}</strong><div class="small text-muted-custom">${r.symbol || ""}</div></td>
+              <td><span class="badge bg-secondary">${r.expiry_note || "-"}</span></td>
+              <td colspan="7" class="text-warning small">${r.error || "Unavailable"}</td>
+            </tr>`;
+          }
+          const wd = r.by_weekday || {};
+          const dayEntries = Object.entries(wd).filter(([, v]) => (v && v.trades > 0));
+          dayEntries.sort((a, b) => (b[1].avg_r || 0) - (a[1].avg_r || 0));
+          const bestDay = dayEntries.length ? `${dayEntries[0][0]} (${dayEntries[0][1].avg_r >= 0 ? "+" : ""}${dayEntries[0][1].avg_r}R)` : "-";
+          const worstDay = dayEntries.length > 1
+            ? `${dayEntries[dayEntries.length - 1][0]} (${dayEntries[dayEntries.length - 1][1].avg_r >= 0 ? "+" : ""}${dayEntries[dayEntries.length - 1][1].avg_r}R)`
+            : "-";
+          const avgRClass = Number(r.avg_r || 0) >= 0 ? "text-success fw-semibold" : "text-danger fw-semibold";
+          const cumRClass = Number(r.cum_r || 0) >= 0 ? "text-success fw-semibold" : "text-danger fw-semibold";
+          return `<tr>
+            <td><strong>${r.label}</strong><div class="small text-muted-custom">${r.symbol}</div></td>
+            <td><span class="badge bg-dark border">${r.expiry_note || "-"}</span></td>
+            <td>${r.trades_count ?? 0}</td>
+            <td>${Number(r.win_rate_pct || 0).toFixed(1)}%</td>
+            <td class="${avgRClass}">${Number(r.avg_r || 0) >= 0 ? "+" : ""}${Number(r.avg_r || 0).toFixed(2)}R</td>
+            <td class="${cumRClass}">${Number(r.cum_r || 0) >= 0 ? "+" : ""}${Number(r.cum_r || 0).toFixed(2)}R</td>
+            <td>${Number(r.cum_pts || 0) >= 0 ? "+" : ""}${Number(r.cum_pts || 0).toFixed(1)}</td>
+            <td class="small">${Number(r.avg_mfe_pts || 0).toFixed(1)} / ${Number(r.avg_mae_pts || 0).toFixed(1)}</td>
+            <td class="small">Best: <strong>${bestDay}</strong><br><span class="text-muted-custom">Weak: ${worstDay}</span></td>
+          </tr>`;
+        }).join("");
+
+        if (statusEl) statusEl.textContent = `Completed ${daysBack}-day read-only research comparison (${rows.length} indexes evaluated).`;
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="text-danger small">Error running multi-index backtest: ${err.message || err}</td></tr>`;
+        if (statusEl) statusEl.textContent = "Network/runtime error during index comparison.";
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     }
 
     function exportCSV() {
