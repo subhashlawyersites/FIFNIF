@@ -572,11 +572,12 @@ def api_15m_analytics():
             sync_15m_trades_to_supabase(all_closed_trades)
     except Exception:
         pass
-    active_days = {"Monday", "Wednesday", "Thursday"}
+    from supabase_15m_store import classify_weekday_regime
 
     normalized_trades = []
     for idx, tr in enumerate(raw_trades, 1):
         wk = str(tr.get("weekday") or "")
+        eligible, skip_reason = classify_weekday_regime(wk)
         pts = float(tr.get("pnl_pts", 0.0) or 0.0)
         entry_raw = str(tr.get("entry_time") or "")
         exit_raw = str(tr.get("exit_time") or "")
@@ -587,7 +588,9 @@ def api_15m_analytics():
             "id": tr.get("id") or f"15m_{idx}_{tr.get('date', '')}_{entry_hm}",
             "session_date": str(tr.get("date") or ""),
             "weekday": wk,
-            "is_eligible_day": wk in active_days,
+            "is_eligible_day": eligible,
+            "regime_mode": "ACTIVE" if eligible else "SHADOW",
+            "skip_reason": skip_reason,
             "direction": str(tr.get("direction") or ""),
             "crossover_time": str(tr.get("cross_time") or entry_hm),
             "entry_time": entry_hm,

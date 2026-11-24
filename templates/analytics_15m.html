@@ -672,7 +672,8 @@
       currentFilteredTrades = filterTrades(allTrades);
       const agg = aggregateTrades(currentFilteredTrades);
 
-      document.getElementById("edgeMetaSummary").textContent =
+      const regimePrefix = (dayRegime === "ALL_LOGGED") ? "[SHADOW LOGGED INCLUDED] " : "[ACTIVE MON/WED/THU] ";
+      document.getElementById("edgeMetaSummary").textContent = regimePrefix +
         `Showing ${currentFilteredTrades.length} of ${allTrades.length} logged 15m signals (${dayRegime === "ACTIVE_ONLY" ? "Mon/Wed/Thu" : "All Days"})`;
       document.getElementById("edgeRowsCount").textContent = `${currentFilteredTrades.length} signals`;
 
