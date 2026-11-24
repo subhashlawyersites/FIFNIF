@@ -764,7 +764,8 @@
       const agg = aggregateTrades(currentFilteredTrades);
 
       const regimePrefix = (dayRegime === "ALL_LOGGED") ? "[SHADOW LOGGED INCLUDED] " : "[ACTIVE MON/WED/THU] ";
-      document.getElementById("edgeMetaSummary").textContent = regimePrefix +
+      const degradedPrefix = (rawPayload && rawPayload.degraded) ? "[DEGRADED/STALE] " : "";
+      document.getElementById("edgeMetaSummary").textContent = degradedPrefix + regimePrefix +
         `Showing ${currentFilteredTrades.length} of ${allTrades.length} logged 15m signals (${dayRegime === "ACTIVE_ONLY" ? "Mon/Wed/Thu" : "All Days"})`;
       document.getElementById("edgeRowsCount").textContent = `${currentFilteredTrades.length} signals`;
 

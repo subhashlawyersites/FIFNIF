@@ -181,6 +181,7 @@ def sync_15m_trades_to_supabase(trades: list[dict[str, Any]]) -> dict[str, Any]:
 def dispatch_15m_engine_alerts(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     results = []
     for ev in events or []:
+      try:
         ev_name = str(ev.get("event") or "").upper()
         tr = ev.get("trade") or {}
         dt_str = str(tr.get("date") or tr.get("session_date") or ev.get("date") or "")[:10]
@@ -234,4 +235,6 @@ def dispatch_15m_engine_alerts(events: list[dict[str, Any]]) -> list[dict[str, A
                 message=f"{dt_str} {bar_hm} {direction} exited ({ev_name}) | PnL: {tr.get('pnl_pts', '-')} pts ({tr.get('r_val', '-')}R)",
                 priority="INFO",
             ))
+      except Exception as exc:
+        results.append({"ok": False, "error": str(exc), "event": ev.get("event")})
     return results
